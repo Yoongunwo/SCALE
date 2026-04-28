@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exp
+  template:
+    metadata:
+      labels:
+        app: exp
+    spec:
+      containers:
+        - name: sys-gen
+          image: yoongunwo/sys_gen:1.0-auto
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "200m"
+            limits:
+              cpu: "200m"
+        - name: proxy
+          image: yoongunwo/yoon_proxy:1.5-syscall-exp2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: RINGBUF_POW2
+              value: "20"
+          volumeMounts:
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+          resources:
+            requests:
+              cpu: "100m"
+            limits:
+              cpu: "100m"
+      volumes:
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
