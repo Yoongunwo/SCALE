@@ -44,7 +44,7 @@ The detailed evaluation methodology and results can be found in the paper (curre
   <em>Kernel-to-User space latency.</em>
 </div>
 
-To further assess the practicality of SCALE, we compare it with widely used open-source monitoring tools in cloud-native environments, namely Tracee and Tetragon, as well as representative academic audit architectures, including eAudit and NoDrop. The experiments employed postmark, where the number of containers running the benchmark was scaled and the CPU resources of the monitoring containers were increased proportionally. As in previous experiments, each monitoring container in SCALE was allocated 3\% of a vCPU and a 1~MB ring buffer. The results for throughput, data loss, and latency are presented in Figure~\ref{img:vs_system}.
+To further assess the practicality of SCALE, we compare it with widely used open-source monitoring tools in cloud-native environments, namely Tracee and Tetragon, as well as representative academic audit architectures, including eAudit and NoDrop. The experiments employed postmark, where the number of containers running the benchmark was scaled and the CPU resources of the monitoring containers were increased proportionally. As in previous experiments, each monitoring container in SCALE was allocated 3\% of a vCPU and a 1~MB ring buffer. The results for throughput, data loss, and latency are presented in Figure.
 
 ## End-to-End Latency: Invocation to Analysis
 
