@@ -5,7 +5,7 @@ This repository provides **SCALE**, a risk-aware distributed system call event c
 # Overview
 
 <div align="center">
-    <img width="600" height="340" alt="Image" src="https://github.com/user-attachments/assets/ca47eb47-5101-4779-9a95-e71f53149253" />
+    <img width="600" height="340" alt="Image" src="./figures/scale_overview.png" />
 </div>
 
 In the user space, the components include the Init Manager, BPF Map Manager, BPF File Descriptor, and Monitoring Container. The Init Manager and BPF Map Manager identify required environmental information and distribute configurations, ensuring that each Monitoring Container can collect system call events effectively. Each Monitoring Container runs as a sidecar alongside its corresponding application container within the same network namespace. It creates probes for each system call that process event data within the kernel and collects the resulting outputs.
@@ -26,68 +26,42 @@ The detailed evaluation methodology and results can be found in the paper (curre
 
 ## Comparison with Existing Systems
 
-To evaluate the practicality of SCALE, we compared it against Tracee and Tetragon, two widely used centralized monitoring tools in cloud-native environments. The experiments employed the postmark, where the number of containers running the benchmark was scaled, and the CPU resources of the monitoring containers were increased proportionally. As in previous experiments, each monitoring container in SCALE was allocated 3\% of a vCPU and a 1 MB ring buffer.
-
 <div align="center">
-  <img width="300" height="150" alt="Image" src="https://github.com/user-attachments/assets/a5204037-bc6e-4fe5-82a2-391caceaf383" />
+  <img width="300" height="150" alt="Image" src="./figures/exp7_throughput_system.png" />
   <br/>
-  <em>Clust-wise collection rate.</em>
+  <em>Host-wise collection rate.</em>
 </div>
 
 <div align="center">
-  <img width="300" height="150" alt="Image" src="https://github.com/user-attachments/assets/f8e14093-52b6-46dd-bd78-3f72ca04201d" />
+  <img width="300" height="150" alt="Image" src="./figures/exp7_drop_system.png" />
   <br/>
   <em>Data loss.</em>
 </div>
 
 <div align="center">
-  <img width="300" height="150" alt="Image" src="https://github.com/user-attachments/assets/4e929ceb-b6c8-4ec9-9cfd-046e9b610b41" />
+  <img width="300" height="150" alt="Image" src="./figures/exp7_latency_system.png" />
   <br/>
   <em>Kernel-to-User space latency.</em>
 </div>
 
+To further assess the practicality of SCALE, we compare it with widely used open-source monitoring tools in cloud-native environments, namely Tracee and Tetragon, as well as representative academic audit architectures, including eAudit and NoDrop. The experiments employed postmark, where the number of containers running the benchmark was scaled and the CPU resources of the monitoring containers were increased proportionally. As in previous experiments, each monitoring container in SCALE was allocated 3\% of a vCPU and a 1~MB ring buffer. The results for throughput, data loss, and latency are presented in Figure~\ref{img:vs_system}.
+
 ## End-to-End Latency: Invocation to Analysis
 
-To demonstrate the effectiveness of differential resource allocation, we evaluated end-to-end latency from system call invocation through event collection to analysis under centralized, evenly distributed, and differential distributed configurations. We used a custom benchmark in which ten application containers each generated approximately 10K system calls per second. Total vCPU allocated to monitoring containers was fixed at 30\% across all configurations to ensure a fair comparison.
-
 <div align="center">
-  <img width="600" height="200" alt="Image" src="https://github.com/user-attachments/assets/d6bbf21f-6d8e-43fd-a13e-63db614c9e6d" />
+  <img width="600" height="200" alt="Image" src="./figures/fig_stacked_total_latency.png" />
   <br/>
   <em>End-to-end latency comparison across monitoring configurations: centralized (Cen), evenly distributed (Dis-Equal), and two differential distributed setups (Dis-Diff).</em>
 </div>
 
-## Evaluation using Real-World Scenario
-
-In this evaluation, we conducted experiments in a real-world workload environment to validate the effectiveness of the proposed Network-Gated CPU Risk Score (NG-CRS) and the system built upon it. Specifically, we compared NG-CRS with three existing risk scoring baselines to assess how effectively each approach adapts to network-based attack scenarios. The baselines include: (1) CPU-only, with quantifies abnormal CPU usage based on deviations from an exponentially weighted moving average (EWMA); (2) Network-only, which measures network burstiness relative to a smoothed baseline; and (3) Non-Gated CPU–Network, which combines risk scores derived from CPU and network utilization through a weighted sum without explicitly modeling their dependency.
-
-  <div align="center">
-    <img width="500" height="125" alt="Image" src="https://github.com/user-attachments/assets/d973a4a7-cdb3-4f6d-88e3-21481469ee15" />
-    <br/>
-    <em>CPU-only baseline</em>
-  </div>
-  
-  <div align="center">
-    <img width="500" height="125" alt="Image" src="https://github.com/user-attachments/assets/5e320f37-9b75-44e8-8635-00a3853f3cf1" />
-    <br/>
-    <em>Network-only baseline</em>
-  </div>
-  
-  <div align="center">
-    <img width="500" height="125" alt="Image" src="https://github.com/user-attachments/assets/0e669a60-794b-4c9f-a984-6241aaf5b6e4" />
-    <br/>
-    <em>Non-gated CPU-Network baseline</em>
-  </div>
-
-  <div align="center">
-    <img width="500" height="125" alt="Image" src="https://github.com/user-attachments/assets/27b06217-bcaf-410a-95ef-090ab12db9a2" />
-    <br/>
-    <em>Proposed Network-gated CPU risk score (NG-CRS)</em>
-  </div>
+To demonstrate the effectiveness of differential resource allocation, we evaluated end-to-end latency from system call invocation through event collection to analysis under centralized, evenly distributed, and differential distributed configurations. We used a custom benchmark in which ten application containers each generated approximately 10K system calls per second. Total vCPU allocated to monitoring containers was fixed at 30\% across all configurations to ensure a fair comparison.
 
 ## Evaluation using real attack scenarios
 
 <div align="center">
-  <img width="500" height="125" alt="Image" src="https://github.com/user-attachments/assets/69a9e270-f7c4-4619-9a23-0871c04f21b9" />
+  <img width="500" height="125" alt="Image" src="./figures/online_boutique_mitre.png" />
   <br/>
   <em>Risk score and system call collection latency accroding to NG-CRS using lateral movement attack scearnios on Online Boutique.</em>
 </div>
+
+To evaluate NG-CRS under realistic attack conditions, we conduct experiments using five MITRE ATT\&CK-based lateral movement scenarios spanning the full attack lifecycle: K8s Enumeration, K8s Manipulation, K8s Container Escape, C2-based Remote Access, and Brute Force, executed on the frontend microservice of the Online Boutique. For this evaluation, NG-CRS parameters are set to $\gamma_n = 0.01$, $\gamma_c = 0.04$, $b_{\text{on}} = 0.10$, $b_{\text{off}} = 0.30$, $m = 0.25$, $\varepsilon = 10^{-6}$, $\lambda = 3.0$, $\theta_{\text{on}} = 0.12$ and $\theta_{\text{off}} = 0.10$, $k_{\text{on}} = 4$, and $k_{\text{off}} = 3$. Figure shows the CPU and network usage of the frontend microservice alongside the NG-CRS risk scores and collection latency during each scenario. Table~\ref{tab:risk_scoring} summarizes the results across all four risk scoring methods.
