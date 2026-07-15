@@ -18,26 +18,26 @@ spec:
           imagePullPolicy: IfNotPresent
           resources:
             requests:
-              cpu: "200m"
+              cpu: '200m'
             limits:
-              cpu: "200m"
+              cpu: '200m'
         - name: proxy
-          image: yoongunwo/yoon_proxy:1.5-syscall-exp2
+          image: { collector container image name }
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
           env:
             - name: RINGBUF_POW2
-              value: "20"
+              value: '20'
           volumeMounts:
             - name: bpf
               mountPath: /sys/fs/bpf
               mountPropagation: Bidirectional
           resources:
             requests:
-              cpu: "100m"
+              cpu: '100m'
             limits:
-              cpu: "100m"
+              cpu: '100m'
       volumes:
         - name: bpf
           hostPath:
