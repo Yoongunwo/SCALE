@@ -24,7 +24,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 128);  // pid 최대 개수
+    __uint(max_entries, 128);  // maximum number of pids
     __type(key, u32);           // pid
     __type(value, u64);         // count
 } counter SEC(".maps");
@@ -34,13 +34,13 @@ static __always_inline void increment_counter(u32 pid) {
     u64 *val = bpf_map_lookup_elem(&counter, &pid);
 
     if (!val) {
-        // 해당 pid 키가 없으면 새로 삽입
+        // insert a new entry if this pid key is absent
         bpf_map_update_elem(&counter, &pid, &init, BPF_ANY);
         val = bpf_map_lookup_elem(&counter, &pid);
-        if (!val) return; // 실패 시
+        if (!val) return; // on failure
     }
 
-    __sync_fetch_and_add(val, 1); // per-CPU라서 race 거의 없음, atomic하게 증가
+    __sync_fetch_and_add(val, 1); // per-CPU, so races are unlikely; increment atomically
 }
 
 SEC("tracepoint/syscalls/sys_enter_read")

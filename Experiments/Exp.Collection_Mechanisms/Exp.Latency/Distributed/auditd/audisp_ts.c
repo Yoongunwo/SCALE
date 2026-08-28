@@ -10,18 +10,18 @@
 static double now_rt(void){ struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return ts.tv_sec + ts.tv_nsec/1e9; }
 static double now_mono(void){ struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + ts.tv_nsec/1e9; }
 
-// robust: "audit(SEC.USEC:SER)" 또는 "msg=audit(SEC.USEC:SER)"
+// robust: "audit(SEC.USEC:SER)" or "msg=audit(SEC.USEC:SER)"
 static int parse_audit_ts(const char *s, double *out_sec, long *serial_out) {
     const char *p = strstr(s, "audit(");
     if (!p) return -1;
     p += 6; // after "audit("
 
     long sec = 0, usec = 0, serial = -1;
-    // 예: 1700000000.123456:1) ...
+    // e.g. 1700000000.123456:1) ...
     int n = sscanf(p, "%ld.%ld:%ld", &sec, &usec, &serial);
     if (n != 3) return -1;
 
-    // usec 자릿수는 0~6 가정. 초에 합산.
+    // assume 0-6 usec digits. Added into the seconds.
     if (usec < 0) usec = 0;
     if (usec > 999999) usec = 999999;
 
@@ -63,7 +63,7 @@ int main(void) {
     char *line = NULL; size_t cap = 0;
     while (getline(&line, &cap, stdin) > 0) {
         if (!strstr(line, "type=SYSCALL")) {
-            // 필요시 디버깅
+            // debugging if needed
             // fprintf(stderr, "SKIP: not SYSCALL: %s", line);
             continue;
         }
@@ -81,7 +81,7 @@ int main(void) {
             fprintf(stderr, "WARN: no syscall field\n");
 
         char keybuf[128] = "";
-        (void)parse_field_str(line, " key=", keybuf, sizeof(keybuf)); // 없으면 빈 문자열
+        (void)parse_field_str(line, " key=", keybuf, sizeof(keybuf)); // empty string when absent
 
         double collected_rt   = now_rt();
         double collected_mono = now_mono();

@@ -30,7 +30,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 128);  // pid 최대 개수
+    __uint(max_entries, 128);  // maximum number of pids
     __type(key, u32);           // pid
     __type(value, u64);         // count
 } counter SEC(".maps");

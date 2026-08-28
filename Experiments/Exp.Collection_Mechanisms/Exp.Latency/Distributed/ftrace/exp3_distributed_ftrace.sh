@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---- 기본값 ----
+# ---- defaults ----
 PREFIX="${PREFIX:-exp3-}"
 NAMESPACE="${NAMESPACE:-}"
-CONTAINER="${CONTAINER:-proxy}"          # collector가 도는 컨테이너
+CONTAINER="${CONTAINER:-proxy}"          # container where the collector runs
 DURATION="${DURATION:-10}"
 CMD_PATH="${CMD_PATH:-./build/syscall_collector}"
 LOG_FILE="${LOG_FILE:-syscalls_*.log}"
 
-# sys_generator 관련
+# sys_generator related
 GEN_CONTAINER="${GEN_CONTAINER:-sys-gen}"
 GEN_CMD_PATH="${GEN_CMD_PATH:-./sys_generator}"
 GEN_DURATION="${GEN_DURATION:-2}"
 
-# 제외할 파드 (콤마구분: podA,podB)
+# pods to exclude (comma separated: podA,podB)
 EXCLUDE="${EXCLUDE:-}"
 
 usage() {
@@ -38,7 +38,7 @@ Options:
 EOF
 }
 
-# ---- 옵션 파싱 ----
+# ---- option parsing ----
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--prefix) PREFIX="$2"; shift 2 ;;
@@ -59,7 +59,7 @@ done
 NSFLAG=()
 [[ -n "$NAMESPACE" ]] && NSFLAG=(-n "$NAMESPACE")
 
-# ---- 제외 파드 리스트 처리 ----
+# ---- process the exclusion list ----
 declare -A EXSET
 if [[ -n "$EXCLUDE" ]]; then
   IFS=',' read -r -a _arr <<<"$EXCLUDE"
@@ -77,7 +77,7 @@ if [[ ${#PODS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# 제외 적용
+# apply the exclusions
 FILTERED=()
 for p in "${PODS[@]}"; do
   if is_excluded "$p"; then
@@ -96,13 +96,13 @@ echo "Found ${#PODS[@]} pods after exclusion."
 
 declare -A PIDMAP
 
-# ---- 수집 전: 이전 로그 삭제 ----
+# ---- before collecting: remove the previous logs ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] pre-clean logs in collector container ($LOG_FILE)"
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc 'rm -f '"$LOG_FILE"' 2>/dev/null || true' || true
 done
 
-# ---- collector 시작 ----
+# ---- start the collector ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] starting collector in '$CONTAINER' -> $CMD_PATH"
   set +e
@@ -126,20 +126,20 @@ for pod in "${PODS[@]}"; do
   PIDMAP["$pod"]="$PID"
 done
 
-# ---- sys_generator 2초 실행 (선택된 파드만, sys-gen 컨테이너) ----
+# ---- run sys_generator for 2s (selected pods only, sys-gen container) ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] launching sys_generator for ${GEN_DURATION}s in '$GEN_CONTAINER' -> $GEN_CMD_PATH"
   kubectl exec "${NSFLAG[@]}" -c "$GEN_CONTAINER" "$pod" -- sh -lc '
     CMD='"$GEN_CMD_PATH"';
     DUR='"$GEN_DURATION"';
-    # 존재 확인
+    # check existence
     if [ ! -x "$CMD" ] && [ ! -f "$CMD" ]; then
       echo "__GEN_MISSING__"
       exit 0
     fi
-    # 실행 + PID 기록
+    # run it and record the PID
     (nohup "$CMD" >/dev/null 2>&1 & echo $! > /tmp/sysgen.pid) || true
-    # DUR 뒤 종료 예약 (pkill/killall/ps-kill 순서로 시도)
+    # schedule termination after DUR (try pkill, killall, then ps-kill)
     nohup sh -c "
       sleep \"$DUR\";
       { test -f /tmp/sysgen.pid && kill -TERM \$(cat /tmp/sysgen.pid) 2>/dev/null; } || \
@@ -154,7 +154,7 @@ done
 echo ">> Collecting for ${DURATION}s..."
 sleep "$DURATION"
 
-# ---- collector 종료 ----
+# ---- stop the collector ----
 for pod in "${PODS[@]}"; do
   PID="${PIDMAP[$pod]:-__UNKNOWN__}"
   echo "[$pod] stopping collector (PID=$PID)"
@@ -162,7 +162,7 @@ for pod in "${PODS[@]}"; do
     "{ [ \"$PID\" != \"__UNKNOWN__\" ] && kill -TERM \"$PID\" 2>/dev/null; } || pkill -f \"$CMD_PATH\" 2>/dev/null || true"
 done
 
-# ---- 결과 요약: 최신 파일 1개만 사용 ----
+# ---- result summary: use only the newest file ----
 printf "\n%-24s  %-14s  %-12s\n" "POD" "duration(sec)" "lines"
 printf "%-24s  %-14s  %-12s\n" "------------------------" "------------" "------------"
 
@@ -182,14 +182,14 @@ for pod in "${PODS[@]}"; do
   }
 done
 
-# ---- 각 파드에서 로그 파일 삭제 ----
+# ---- delete the log files in each pod ----
 echo -e "\n>> Deleting logs in collector containers ($LOG_FILE)"
 for pod in "${PODS[@]}"; do
   echo "[$pod] rm -f $LOG_FILE"
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc 'rm -f '"$LOG_FILE"' 2>/dev/null || true' || true
 done
 
-# ---- ftrace 인스턴스 정리 (한 번만; tracing 과 debug 둘 다 시도) ----
+# ---- clean up the ftrace instance (once; try both tracing and debug) ----
 FIRST_POD="${PODS[0]}"
 echo -e "\n>> Cleaning ftrace instances once in $FIRST_POD"
 kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$FIRST_POD" -- sh -lc '

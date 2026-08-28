@@ -37,7 +37,7 @@ static void setup_ftrace_instance(const char *instance, const char *pid_str) {
 
     char path[1024];
 
-    // 0) trace_clock = mono  <-- 추가!
+    // 0) trace_clock = mono  <-- added!
     snprintf(path, sizeof(path), "%s/trace_clock", base);
     write_to_file(path, "mono");
 
@@ -91,7 +91,7 @@ static void cleanup_ftrace_instance(void) {
 }
 
 static int handle_event(const char *data, size_t size) {
-    // 로그: "sec.usec : <ftrace line>"
+    // log: "sec.usec : <ftrace line>"
     fprintf(log_fp, "%.*s", (int)size, data);
     return 0;
 }
@@ -155,7 +155,7 @@ static int collect_tids_for_tgid(int tgid, int *tids, int max_n){
     closedir(d); return n;
 }
 
-/* cgroup 경로 문자열(슬래시부터 끝까지)을 하나 뽑는다 */
+/* extract one cgroup path string (from the slash to the end) */
 static int read_cgroup_path_for_proc(int pid, char *buf, size_t bufsz){
     char path[128]; snprintf(path,sizeof(path),"/proc/%d/cgroup",pid);
     FILE *f=fopen(path,"r"); if(!f) return -1;
@@ -224,15 +224,15 @@ int main(void) {
         return 1;
     }
 
-    /* 1) 같은 Pod에서 sys_generator 하나 고르기 */
+    /* 1) pick one sys_generator from the same Pod */
     int c_tgid = pick_one_tgid_by_comm("postmark");
     if(c_tgid<=0){ fprintf(stderr,"[ERR] no postmark in this container\n"); return 1; }
 
-    /* 2) 컨테이너 TIDs */
+    /* 2) container TIDs */
     int c_tids[512]; int n_ctids = collect_tids_for_tgid(c_tgid, c_tids, 512);
     fprintf(stderr,"[INFO] container TGID=%d, TIDs=%d (ex: %d)\n", c_tgid, n_ctids, n_ctids?c_tids[0]:-1);
 
-    /* 3) host TGID/TIDs (매핑 확인 및 로그 파일명에 사용) */
+    /* 3) host TGID/TIDs (used to check the mapping and to name the log file) */
     char cg[512];
     if(read_cgroup_path_for_proc(c_tgid, cg, sizeof(cg))!=0){
         fprintf(stderr,"[ERR] cannot read cgroup path for %d\n", c_tgid); return 1;
@@ -246,7 +246,7 @@ int main(void) {
     fprintf(stderr,"[INFO] mapped host TGID=%d, host TIDs=%d (ex: %d)\n",
             host_tgid, n_htids, n_htids?h_tids[0]:-1);
 
-    // instance 이름과 로그 파일 이름 자동 생성
+    // generate the instance name and the log file name automatically
     char pid_str[32];
     snprintf(pid_str, sizeof(pid_str), "%u", host_tgid);
 
@@ -265,17 +265,17 @@ int main(void) {
 
     atexit(cleanup_ftrace_instance);
 
-    // ftrace 인스턴스 설정
+    // configure the ftrace instance
     setup_ftrace_instance(instance, pid_str);
 
-    // trace_pipe 읽기 (무한)
+    // read trace_pipe (endlessly)
     while (1) {
         start_trace_pipe(instance);
-        // 일반적으로 trace_pipe는 EOF가 나지 않습니다.
-        // 에러/일시적 끊김이 있더라도 다시 붙습니다.
+        // trace_pipe normally never reaches EOF.
+        // Even on an error or a temporary break, we reattach.
     }
 
-    // 도달하지 않지만 형식상
+    // unreachable, kept for form
     fclose(log_fp);
     log_fp = NULL;
     cleanup_ftrace_instance();

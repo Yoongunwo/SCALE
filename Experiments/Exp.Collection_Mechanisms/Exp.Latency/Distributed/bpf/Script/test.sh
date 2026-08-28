@@ -6,7 +6,7 @@ POD_PREFIX="exp2-"
 LINES=3000
 TOPK=100
 
-# Pod 목록
+# pod list
 mapfile -t PODS < <(kubectl get pods -n "$NS" \
   --field-selector=status.phase=Running \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
@@ -22,7 +22,7 @@ trap 'rm -f "$TMP"' EXIT
 
 declare -A LOGFILES=()
 
-# 각 Pod에서 최신 로그 파일 찾기
+# find the newest log file in each Pod
 for pod in "${PODS[@]}"; do
   logfile="$(kubectl exec -n "$NS" "$pod" -- sh -c '
     for p in /app/syscalls_*.log; do
@@ -40,7 +40,7 @@ if [[ ${#LOGFILES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# 끝에서 1번째 ~ LINES번째 줄까지 확인
+# inspect the last line through the LINES-th line from the end
 for n in $(seq 1 $LINES); do
   min_ev=""
   max_co=""
@@ -50,7 +50,7 @@ for n in $(seq 1 $LINES); do
     logfile="${LOGFILES[$pod]:-}"
     [[ -z "$logfile" ]] && continue
 
-    # 끝에서 $LINES 줄 가져온 뒤, 그 블록에서 $n번째 줄 추출
+    # take the last $LINES lines, then extract the $n-th line of that block
     line="$(kubectl exec -n "$NS" "$pod" -- sh -c "tail -n $LINES $logfile | sed -n '${n}p'" 2>/dev/null || true)"
     [[ -z "$line" ]] && continue
 

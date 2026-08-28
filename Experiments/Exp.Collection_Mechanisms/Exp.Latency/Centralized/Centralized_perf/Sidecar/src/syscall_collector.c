@@ -45,7 +45,7 @@ static int handle_event(void *data, size_t size) {
     return 0;
 }
 
-/* pidof 결과(공백 구분)를 콤마(,) 구분 리스트로 변환 */
+/* convert the pidof result (space separated) into a comma separated list */
 static int build_pid_list(const char *comm, char *out, size_t outsz) {
     FILE *pf = popen("pidof sys_generator || pidof postmark", "r");
     if (!pf) { perror("popen(pidof)"); return -1; }
@@ -54,7 +54,7 @@ static int build_pid_list(const char *comm, char *out, size_t outsz) {
     int count = 0;
     char buf[4096];
     if (fgets(buf, sizeof(buf), pf)) {
-        // buf 예: "1234 2345 3456\n"
+        // buf example: "1234 2345 3456\n"
         char *tok = strtok(buf, " \t\r\n");
         while (tok) {
             if (count > 0) strncat(out, ",", outsz - strlen(out) - 1);
@@ -64,13 +64,13 @@ static int build_pid_list(const char *comm, char *out, size_t outsz) {
         }
     }
     pclose(pf);
-    return count; // 0이면 프로세스가 없음
+    return count; // 0 means the process does not exist
 }
 
 int main(void) {
     compute_offset();
 
-    // sys_generator 전부
+    // every sys_generator
     char pidlist[4096];
     int n = build_pid_list("sys_generator", pidlist, sizeof(pidlist));
     if (n <= 0) {
@@ -79,7 +79,7 @@ int main(void) {
     }
     printf("Monitoring PIDs: %s\n", pidlist);
 
-    // perf trace 커맨드 구성 (-p pid1,pid2,...)
+    // build the perf trace command (-p pid1,pid2,...)
     char perf_cmd[8192];
     snprintf(perf_cmd, sizeof(perf_cmd),
              "perf trace -e syscalls:sys_enter_* -p %s 2>&1", pidlist);
@@ -87,7 +87,7 @@ int main(void) {
     FILE *fp = popen(perf_cmd, "r");
     if (!fp) { perror("popen perf trace"); return 1; }
 
-    // 단일 합산 로그로 저장(원하면 PID별로 분리도 가능)
+    // store as a single combined log (it can be split per PID if desired)
     log_fp = fopen("syscalls_sys_generator.log", "w");
     if (!log_fp) { perror("fopen log"); pclose(fp); return 1; }
 

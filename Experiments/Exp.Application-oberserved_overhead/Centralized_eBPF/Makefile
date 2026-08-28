@@ -15,7 +15,7 @@ collector.skel.h: collector.bpf.o
 main: collector.c collector.skel.h
 	clang -g -O2 -Wall -I. -o collector collector.c -lelf -lz -lbpf
 
-# read_counter.c 가 이 디렉터리에 없어 all 에서 뺐다. 필요해지면 소스와 함께 되살릴 것.
+# read_counter.c is not in this directory, so it was dropped from all. Restore it together with the source if needed.
 read_counter: read_counter.c
 	clang -g -O2 -Wall -I. -o read_counter read_counter.c -lelf -lz -lbpf
 

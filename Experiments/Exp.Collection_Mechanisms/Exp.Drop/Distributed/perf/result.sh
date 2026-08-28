@@ -1,16 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-NAMESPACE=default   # 필요하면 변경
+NAMESPACE=default   # change if needed
 TOTAL=0
 
-# exp3* pod 목록 가져오기
+# get the list of exp3* pods
 PODS=$(kubectl get pods -n "$NAMESPACE" -o name | grep '^pod/exp2')
 
 for P in $PODS; do
   echo "[INFO] Processing $P"
-  # proxy 컨테이너에서 wc 실행
-  # syscall* 파일이 없으면 에러가 나므로 2>/dev/null 처리
+  # run wc in the proxy container
+  # a missing syscall* file would raise an error, hence 2>/dev/null
   COUNT=$(kubectl exec -n "$NAMESPACE" "$P" -c proxy -- sh -c 'wc -l syscall* 2>/dev/null | awk "{sum += \$1} END {print sum+0}"')
   echo "  $P -> $COUNT"
   TOTAL=$((TOTAL + COUNT))

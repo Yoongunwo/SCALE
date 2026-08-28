@@ -3,17 +3,17 @@ set -euo pipefail
 
 # =========================================
 # sysdig.sh
-# - 여러 개의 sys_generator 프로세스를 host PID로 매핑하여
-#   evt.dir="<" + (proc.pid=H1 or proc.pid=H2 ...) 커널 필터로 캡처
-# - /host/proc 가 hostPath 로 마운트되어 있어야 정확한 host PID 매핑 가능
+# - maps several sys_generator processes onto host PIDs and captures them with the
+#   kernel filter evt.dir="<" + (proc.pid=H1 or proc.pid=H2 ...)
+# - /host/proc must be mounted as a hostPath for the host PID mapping to be accurate
 #   (readOnly OK)
 # =========================================
 
-NAME="${1:-sys_generator}"   # 프로세스 이름(정확 매칭, 기본 sys_generator)
-DUR="${2:-10}"               # 수집 시간(초) - sysdig -M
-SNAP="${3:-80}"              # 스냅렌 -s (작게 할수록 드롭 감소)
+NAME="${1:-sys_generator}"   # process name (exact match, default sys_generator)
+DUR="${2:-10}"               # collection time in seconds - sysdig -M
+SNAP="${3:-80}"              # snaplen -s (the smaller, the fewer drops)
 
-# /host/proc 마운트 필요:
+# /host/proc must be mounted:
 # spec:
 #   volumes:
 #   - name: host-proc
@@ -24,7 +24,7 @@ SNAP="${3:-80}"              # 스냅렌 -s (작게 할수록 드롭 감소)
 #       mountPath: /host/proc
 #       readOnly: true
 
-# --------- 유틸 ----------
+# --------- utilities ----------
 _now_ns() { date +%s%N; }
 
 _num_or_zero() {
@@ -33,12 +33,12 @@ _num_or_zero() {
   echo "$s" | tr -d ',' | awk '{gsub(/[^0-9.]/,""); if($0=="") print 0; else print}'
 }
 
-# --------- 여러 PID 매핑 (container PID -> host PID들) ----------
-# 출력: 각 줄 "cpid:host1,host2,..."
+# --------- map several PIDs (container PID -> host PIDs) ----------
+# output: one line per entry, "cpid:host1,host2,..."
 resolve_host_pids_all() {
   local name="${1:-sys_generator}"
 
-  # 1) 컨테이너 PID들 수집 (정확 매칭)
+  # 1) collect the container PIDs (exact match)
   local cpids=()
   if command -v pgrep >/dev/null 2>&1; then
     while IFS= read -r pid; do
@@ -55,7 +55,7 @@ resolve_host_pids_all() {
     return 1
   fi
 
-  # /host/proc 없으면 컨테이너 PID로만 리턴(필터는 작동하지만 커널 PID 기준이 아님)
+  # without /host/proc, return container PIDs only (the filter works, but not in kernel PID terms)
   if [[ ! -r /host/proc ]]; then
     echo "WARN: /host/proc not mounted; using container PIDs as-is" >&2
     for cpid in "${cpids[@]}"; do
@@ -64,7 +64,7 @@ resolve_host_pids_all() {
     return 0
   fi
 
-  # 2) /host/proc 스캔: NSpid 마지막 == cpid && comm == name
+  # 2) scan /host/proc: the last NSpid == cpid && comm == name
   declare -A host_by_cpid
   local sp pid last comm
 
@@ -72,7 +72,7 @@ resolve_host_pids_all() {
     pid="${sp#/host/proc/}"
     pid="${pid%/status}"
 
-    # 마지막 NSpid 토큰(컨테이너 PID)을 뽑음
+    # take the last NSpid token (the container PID)
     last="$(awk '/^NSpid:/{for(i=2;i<=NF;i++) L=$i} END{if(L!="") print L}' "$sp" 2>/dev/null)" || true
     [[ -z "$last" ]] && continue
 
@@ -85,21 +85,21 @@ resolve_host_pids_all() {
     host_by_cpid["$last"]+="${host_by_cpid[$last]:+ }$pid"
   done < <(find /host/proc -maxdepth 2 -type f -name status -print0 2>/dev/null)
 
-  # 3) 결과 출력
+  # 3) print the result
   for cpid in "${cpids[@]}"; do
     if [[ -n "${host_by_cpid[$cpid]:-}" ]]; then
       read -r -a arr <<<"${host_by_cpid[$cpid]}"
-      # uniq + 정렬
+      # uniq + sort
       mapfile -t uniq_arr < <(printf "%s\n" "${arr[@]}" | awk '!seen[$0]++' | sort -n)
       printf "%s:%s\n" "$cpid" "$(IFS=,; echo "${uniq_arr[*]}")"
     else
-      # 매칭 실패 시 빈값
+      # empty when nothing matches
       printf "%s:\n" "$cpid"
     fi
   done
 }
 
-# --------- sysdig 필터 생성 (host PID들로 OR) ----------
+# --------- build the sysdig filter (OR over the host PIDs) ----------
 make_sysdig_pid_filter_from_name() {
   local name="${1:-sys_generator}"
   local hosts=()
@@ -126,9 +126,9 @@ make_sysdig_pid_filter_from_name() {
   echo "$filter"
 }
 
-# --------- 실행 ----------
+# --------- run ----------
 main() {
-  # 매핑 표기용: container->host 리스트를 보여줌
+  # for display: show the container->host list
   echo -n "PID map:"
   if out="$(resolve_host_pids_all "$NAME" 2>/dev/null)"; then
     echo
@@ -139,10 +139,10 @@ main() {
     echo " (resolve failed)"
   fi
 
-  # 커널 필터 생성
+  # build the kernel filter
   FILTER="$(make_sysdig_pid_filter_from_name "$NAME")" || {
     echo "filter error: could not build host PID filter" >&2
-    # 마지막 폴백: 컨테이너 PID OR 필터 (정확도↓)
+    # last fallback: an OR filter over container PIDs (less accurate)
     if command -v pgrep >/dev/null 2>&1; then
       mapfile -t CPIDS < <(pgrep -x "$NAME" || true)
     else
@@ -161,18 +161,18 @@ main() {
     echo "WARN: using container PIDs filter: $FILTER" >&2
   }
 
-  # --- sysdig 실행 ---
-  # evt.dir="<" (enter만), -s SNAP, -M DUR, -v 요약, 출력은 버림
-  # 벽시계 시간 측정
+  # --- run sysdig ---
+  # evt.dir="<" (enter only), -s SNAP, -M DUR, -v summary; the output is discarded
+  # measure the wall-clock time
   local start_ns=$(_now_ns)
   local OUT
   OUT="$(sysdig -M "$DUR" -v -s "$SNAP" -w /dev/null 'evt.dir="<" and '"$FILTER" 2>&1 || true)"
   local end_ns=$(_now_ns)
 
-  # 원본 요약 라인 먼저 그대로 출력(진단용)
+  # print the raw summary line first, verbatim (for diagnostics)
   echo "$OUT" | sed -n '1,10p' | sed 's/^/ /'
 
-  # ---- 파싱 ----
+  # ---- parsing ----
   local driver_events driver_drops elapsed_span captured eps_span
   driver_events="$(echo "$OUT" | sed -n 's/^Driver Events[[:space:]:]*\([0-9,][0-9,]*\).*/\1/p' | head -n1)"
   driver_drops="$( echo "$OUT" | sed -n 's/^Driver Drops[[:space:]:]*\([0-9,][0-9,]*\).*/\1/p'  | head -n1)"
@@ -184,7 +184,7 @@ main() {
   # ns → s
   wall_s="$(awk -v s="$start_ns" -v e="$end_ns" 'BEGIN{printf "%.6f",(e-s)/1e9}')"
 
-  # 숫자화
+  # convert to numbers
   local ev dr es cap eps
   ev=$(_num_or_zero "$driver_events")
   dr=$(_num_or_zero "$driver_drops")
@@ -202,7 +202,7 @@ main() {
     eps_wall="$(awk -v c="$cap" -v d="$DUR" 'BEGIN{ if(d>0) printf "%.2f", c/d; else print "N/A"}')"
   fi
 
-  # ---- 사람이 보기 쉬운 요약 ----
+  # ---- human-friendly summary ----
   echo
   echo "=== sysdig PID monitor summary ==="
   echo "Process name        : ${NAME}"

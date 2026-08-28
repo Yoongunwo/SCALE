@@ -32,7 +32,7 @@ int main() {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    // BPF 프로그램 로드
+    // load the BPF program
     skel = collector_bpf__open_and_load();
     if (!skel) {
         fprintf(stderr, "Failed to load BPF skeleton\n");
@@ -44,21 +44,21 @@ int main() {
         return 1;
     }
 
-    // BPF 프로그램 attach
+    // attach the BPF program
     err = collector_bpf__attach(skel);
     if (err) {
         fprintf(stderr, "Failed to attach BPF programs: %d\n", err);
         goto cleanup;
     }
 
-    // sys_generator PID 찾기
+    // find the sys_generator PID
     FILE *fp = popen("pidof sys_generator", "r");
     if (!fp) {
         fprintf(stderr, "Failed to run pidof\n");
         goto cleanup;
     }
     
-    // BPF map에 target PID 등록
+    // register the target PID in the BPF map
     while (fscanf(fp, "%u", &pid) == 1) {
         err = bpf_map_update_elem(
             bpf_map__fd(skel->maps.target_pids),

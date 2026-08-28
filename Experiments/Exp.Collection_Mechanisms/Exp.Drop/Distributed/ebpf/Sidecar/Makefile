@@ -22,7 +22,7 @@ BPF_SKEL := $(SRC_DIR)/syscall_collector.skel.h
 USER_SRC := $(SRC_DIR)/syscall_collector.c
 USER_BIN := $(BUILD_DIR)/syscall_collector
 
-# ★ Map reader 소스/실행 파일
+# Map reader source / executable
 READER_SRC := $(SRC_DIR)/map_reader.c
 READER_BIN := $(BUILD_DIR)/map_reader
 
@@ -50,7 +50,7 @@ $(USER_BIN): $(USER_SRC) $(BPF_SKEL)
 	@echo "[*] Compiling $< → $@"
 	@clang -g -O2 -Wall -I$(SRC_DIR) -o $@ $< -lbpf -lelf -lz -ljansson
 
-# ★ Map reader 빌드 규칙
+# Map reader build rule
 $(READER_BIN): $(READER_SRC)
 	@mkdir -p $(BUILD_DIR)
 	@echo "[*] Compiling $< → $@"

@@ -42,9 +42,9 @@ int pin_map(struct bpf_map *map, const char *path) {
 }
 
 int main() {
-    // kubectl logs 로 볼 때 stdout 은 파이프라 glibc 가 전(全)버퍼링(4KB)을 쓴다.
-    // 아래 printf 들이 버퍼에 쌓인 채 무한 poll 루프로 들어가면 로그에 아무것도
-    // 안 나와 "멈춘 것처럼" 보인다. 줄 단위 버퍼링으로 바꿔 즉시 보이게 한다.
+    // Under kubectl logs, stdout is a pipe, so glibc uses full buffering (4KB).
+    // If the printfs below stay in the buffer while we enter the endless poll loop,
+    // nothing appears in the log and it looks "stuck". Line buffering makes it visible immediately.
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     struct collector_bpf *skel;
@@ -53,33 +53,33 @@ int main() {
     __u8 one = 1;
     __u32 pid = 0;
     int nregistered = 0;
-    int rc = 0;                 // 비정상 종료를 exit code 로 드러내기 위한 것
+    int rc = 0;                 // used to surface an abnormal exit through the exit code
 
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    // BPF 프로그램 로드
+    // load the BPF program
     skel = collector_bpf__open_and_load();
     if (!skel) {
         fprintf(stderr, "Failed to load BPF skeleton\n");
         return 1;
     }
 
-    // BPF 프로그램 attach
+    // attach the BPF program
     err = collector_bpf__attach(skel);
     if (err) {
         fprintf(stderr, "Failed to attach BPF programs: %d\n", err);
         goto cleanup;
     }
 
-    // sys_generator PID 찾기
+    // find the sys_generator PID
     FILE *fp = popen("pidof sys_generator", "r");
     if (!fp) {
         fprintf(stderr, "Failed to run pidof\n");
         goto cleanup;
     }
     
-    // BPF map에 target PID 등록
+    // register the target PID in the BPF map
     while (fscanf(fp, "%u", &pid) == 1) {
         err = bpf_map_update_elem(
             bpf_map__fd(skel->maps.target_pids),
@@ -95,9 +95,9 @@ int main() {
 
     pclose(fp);
 
-    // 중앙집중 조건에서는 collector 가 sys_generator 파드보다 먼저 뜰 수 있다.
-    // 그러면 등록할 PID 가 없어 조용히 0건을 수집하고, 실험은 성공한 것처럼 보인다.
-    // 명시적으로 실패시켜 파드가 CrashLoopBackOff 로 드러나게 한다.
+    // In the centralized condition the collector can come up before the sys_generator pod.
+    // Then there is no PID to register: it silently collects nothing and the run looks successful.
+    // Fail explicitly so the pod surfaces as CrashLoopBackOff.
     if (nregistered == 0) {
         fprintf(stderr, "[-] no sys_generator process found. "
                         "sys-gen pods must be Running before this collector starts.\n");
@@ -106,14 +106,14 @@ int main() {
     }
     printf("[+] registered %d target PID(s)\n", nregistered);
 
-    // 로그 파일 열기
+    // open the log file
     log_fp = fopen("syscalls.log", "w");
     if (!log_fp) {
         perror("fopen");
         goto cleanup;
     }
 
-    // ring buffer 생성
+    // create the ring buffer
     rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
     if (!rb) {
         fprintf(stderr, "Failed to create ring buffer\n");

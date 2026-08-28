@@ -1,13 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# read_counter 실행 결과 저장
+# save the read_counter output
 OUT=$(sudo ./build/read_counter)
 
-# 합산
+# sum
 TOTAL=$(echo "$OUT" | grep "Events:" | awk '{sum += $NF} END {print sum}')
 
-# 출력
+# output
 echo "$OUT"
 echo "=========================="
 echo "TOTAL Events = $TOTAL"

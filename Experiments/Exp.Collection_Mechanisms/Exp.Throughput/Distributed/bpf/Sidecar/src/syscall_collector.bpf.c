@@ -35,7 +35,7 @@ struct {
 static __always_inline void incr(u32 idx)
 {
     u64 *p = bpf_map_lookup_elem(&stats, &idx);
-    if (p) (*p)++;  // percpu map이라 원자성 걱정 덜함
+    if (p) (*p)++;  // percpu map, so atomicity is less of a concern
 }
 
 SEC("tracepoint/raw_syscalls/sys_enter")
@@ -47,7 +47,7 @@ int syscall_collector(struct trace_event_raw_sys_enter *ctx) {
 
     struct syscall_event_t *e = bpf_ringbuf_reserve(&ringbuf_local, sizeof(*e), 0);
     if (!e) {
-        /* 링버퍼 꽉 차서 기록 못함 = drop */
+        /* the ring buffer is full and the record cannot be written = drop */
         incr(1);  // dropped++
         return 0;
     }

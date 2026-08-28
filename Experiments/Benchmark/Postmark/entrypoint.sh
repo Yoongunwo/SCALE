@@ -22,8 +22,8 @@ EOF
 fi
 
 MODE=${PM_MODE:-once}             # once | loop | sleep | gate
-INTERVAL=${PM_INTERVAL:-10}       # loop 간격(초)
-START_FILE="${PM_START_FILE:-}"   # gate/sleep 모드에서 파일 트리거 경로(선택)
+INTERVAL=${PM_INTERVAL:-10}       # loop interval (seconds)
+START_FILE="${PM_START_FILE:-}"   # file trigger path for the gate/sleep modes (optional)
 
 echo $$ > /tmp/sh.pid || true
 log() { echo "[$(date +%H:%M:%S)] $*"; }
@@ -35,7 +35,7 @@ gate_once() {
   echo "$PM_PID" > /tmp/pm.pid
   log "spawned postmark pid=$PM_PID (STOP for registration)"
 
-  # /proc 엔트리 대기
+  # wait for the /proc entry
   for i in $(seq 1 100); do
     [[ -e "/proc/$PM_PID/exe" ]] && break
     sleep 0.02
@@ -66,7 +66,7 @@ gate_once() {
 
 case "$MODE" in
   gate)
-    GATE_LOOP="${PM_GATE_LOOP:-0}"   # 1이면 반복, 0이면 1회
+    GATE_LOOP="${PM_GATE_LOOP:-0}"   # 1 = repeat, 0 = run once
     if [[ "$GATE_LOOP" = "1" ]]; then
       while :; do
         gate_once || true
@@ -85,7 +85,7 @@ case "$MODE" in
     ;;
 
   sleep)
-    # 변경: gate와 동일하게 STOP→SIGCONT 대기 후 실행, 완료 후 컨테이너 유지
+    # changed: as in gate, STOP and wait for SIGCONT before running, then keep the container alive
     log "sleep mode: STOP→CONT gate, then keep alive"
     gate_once || true
     log "completed. keeping container alive..."

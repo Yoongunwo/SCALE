@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---- 기본값 (원하면 실행 시 옵션으로 변경) ----
-PREFIX="${PREFIX:-exp2-}"                 # 파드 이름 프리픽스
-NAMESPACE="${NAMESPACE:-}"               # 네임스페이스
-CONTAINER="${CONTAINER:-proxy}"          # 컨테이너 이름
-DURATION="${DURATION:-10}"               # 수집 시간(초)
-CMD_PATH="${CMD_PATH:-./build/syscall_collector}"  # 실행할 collector
-LOG_FILE="${LOG_FILE:-syscalls_*.log}"   # 컨테이너 내부 로그 글로브
-READER_PATH="${READER_PATH:-./build/map_reader}"   # drop 리더 실행 파일
+# ---- defaults (override with options at run time) ----
+PREFIX="${PREFIX:-exp2-}"                 # pod name prefix
+NAMESPACE="${NAMESPACE:-}"               # namespace
+CONTAINER="${CONTAINER:-proxy}"          # container name
+DURATION="${DURATION:-10}"               # collection time (seconds)
+CMD_PATH="${CMD_PATH:-./build/syscall_collector}"  # collector to run
+LOG_FILE="${LOG_FILE:-syscalls_*.log}"   # log glob inside the container
+READER_PATH="${READER_PATH:-./build/map_reader}"   # drop reader executable
 
 usage() {
   cat <<'EOF'
@@ -28,7 +28,7 @@ You can also override via env vars: PREFIX, NAMESPACE, CONTAINER, DURATION, CMD_
 EOF
 }
 
-# ---- 옵션 파싱 ----
+# ---- option parsing ----
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--prefix)     PREFIX="$2"; shift 2 ;;
@@ -57,7 +57,7 @@ echo "Found ${#PODS[@]} pods."
 declare -A PIDMAP
 declare -A DROPMAP
 
-# ---- 각 파드에서 수집 시작 ----
+# ---- start collecting in each pod ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] starting collector in container '$CONTAINER' -> $CMD_PATH"
   set +e
@@ -86,7 +86,7 @@ done
 echo ">> Collecting for ${DURATION}s..."
 sleep "$DURATION"
 
-# ---- 수집 종료 ----
+# ---- stop collecting ----
 for pod in "${PODS[@]}"; do
   PID="${PIDMAP[$pod]:-__UNKNOWN__}"
   echo "[$pod] stopping collector (PID=$PID)"
@@ -94,7 +94,7 @@ for pod in "${PODS[@]}"; do
     "{ [ \"$PID\" != \"__UNKNOWN__\" ] && kill -TERM \"$PID\" 2>/dev/null; } || pkill -f \"$CMD_PATH\" 2>/dev/null || true"
 done
 
-# ---- 각 파드에서 drop 읽기 (map_reader) ----
+# ---- read the drops in each pod (map_reader) ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] reading drops with '$READER_PATH'"
   set +e
@@ -111,7 +111,7 @@ for pod in "${PODS[@]}"; do
   fi
 done
 
-# ---- 결과 요약 ----
+# ---- result summary ----
 printf "\n%-24s  %-18s  %-12s  %-12s\n" "POD" "duration(sec)" "lines" "drops"
 printf "%-24s  %-18s  %-12s  %-12s\n" "------------------------" "------------------" "------------" "------------"
 
@@ -132,13 +132,13 @@ for pod in "${PODS[@]}"; do
   printf "%-24s  %-18s  %-12s  %-12s\n" "$pod" "$dur" "$count" "$drops"
 done
 
-# ---- 정리(cleanup) ----
+# ---- cleanup ----
 echo -e "\n>> Cleaning logs in each container ($LOG_FILE)"
 for pod in "${PODS[@]}"; do
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc "rm -f $LOG_FILE 2>/dev/null || true" || true
 done
 
-# /sys/fs/bpf 비우기: 첫 번째 파드 한 번만
+# clear /sys/fs/bpf: only once, on the first pod
 FIRST_POD="${PODS[0]}"
 echo ">> Cleaning /sys/fs/bpf once in $FIRST_POD"
 kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$FIRST_POD" -- sh -lc 'mountpoint -q /sys/fs/bpf && rm -rf /sys/fs/bpf/* 2>/dev/null || true' || true

@@ -65,7 +65,7 @@ static int handle_event(void *ctx, void *data, size_t size) {
     // Evoked: MONOTONIC ns → timespec
     struct timespec ev_ts = ns_to_ts(evt->ts_ns);
 
-    // 사람이 읽을 수 있는 형식 유지
+    // keep the human-readable format
     fprintf(log_fp,
         "Evoked Time=%ld.%06ld, Collected Time=%ld.%06ld PID=%u syscall=%u\n",
         (long)ev_ts.tv_sec,  (long)(ev_ts.tv_nsec  / 1000),
@@ -78,10 +78,10 @@ static int handle_event(void *ctx, void *data, size_t size) {
 #define PIN_BASE "/sys/fs/bpf"
 
 static void sanitize_label(char *s) {
-    // 파일명 안전화를 위해 점/공백 등은 밑줄로 변환
+    // turn dots, spaces and the like into underscores to keep the file name safe
     for (char *p = s; *p; ++p) {
         if (*p == '.' || *p == ' ' || *p == ':' ) *p = '_';
-        // 필요하면 더 추가
+        // add more if needed
     }
 }
 
@@ -101,7 +101,7 @@ static void pin_stats_map_label(struct syscall_collector_bpf *skel, const char *
     }
 }
 
-/* IP 얻기 */
+/* obtain the IP */
 static int get_ipv4_for_iface(const char *ifname, char *buf, size_t buflen) {
     struct ifaddrs *ifaddr = NULL, *ifa = NULL;
     if (getifaddrs(&ifaddr) == -1) return -1;
@@ -181,14 +181,14 @@ int main() {
         return 1;
     }
 
-    // IP 라벨(실패 시 PID로 폴백)
+    // IP label (falls back to the PID on failure)
     char label[INET_ADDRSTRLEN] = {0};
     if (get_self_ipv4(label, sizeof(label)) != 0) {
         return 1;
     }
     pin_stats_map_label(skel, label);
 
-    // 로그 파일
+    // log file
     char file[64];
     snprintf(file, sizeof(file), "syscalls_%u.log", target_pid);
     log_fp = fopen(file, "w");
@@ -198,7 +198,7 @@ int main() {
     }
     setvbuf(log_fp, NULL, _IOFBF, 1<<20);
 
-    // 링버퍼
+    // ring buffer
     int rb_fd = bpf_map__fd(skel->maps.ringbuf_local);
     struct ring_buffer *rb = ring_buffer__new(rb_fd, handle_event, NULL, NULL);
     if (!rb) {
@@ -218,9 +218,9 @@ int main() {
 
 cleanup:
     if (log_fp) fclose(log_fp);
-    // libbpf는 NULL에 안전하긴 하지만 명시적으로
+    // libbpf is NULL-safe, but be explicit
     extern void ring_buffer__free(struct ring_buffer *);
-    ring_buffer__free(NULL); // rb 포인터 넘기세요. (여기 템플릿이라 생략)
+    ring_buffer__free(NULL); // pass the rb pointer here (omitted in this template)
     syscall_collector_bpf__destroy(skel);
     return 0;
 }

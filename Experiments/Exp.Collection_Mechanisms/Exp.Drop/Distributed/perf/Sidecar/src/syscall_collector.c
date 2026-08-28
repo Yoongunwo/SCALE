@@ -46,7 +46,7 @@ static inline struct timespec ns_to_ts(uint64_t ns)
 // }
 
 static int handle_event(void *data, size_t size){
-    fprintf(log_fp, "%s", (char*)data);  // ★ µs 정수로 출력
+    fprintf(log_fp, "%s", (char*)data);  // print as integer microseconds
     return 0;
 }
 
@@ -69,7 +69,7 @@ int main(void) {
     int n = get_container_pid();
     printf("Monitoring PIDs: %d\n", n);
 
-    // perf trace 커맨드 구성 (-p pid1,pid2,...)
+    // build the perf trace command (-p pid1,pid2,...)
     char perf_cmd[8192];
     snprintf(perf_cmd, sizeof(perf_cmd),
              "perf trace -e syscalls:sys_enter_* -p %d -T 2>&1", n);
@@ -77,7 +77,7 @@ int main(void) {
     FILE *fp = popen(perf_cmd, "r");
     if (!fp) { perror("popen perf trace"); return 1; }
 
-    // 단일 합산 로그로 저장(원하면 PID별로 분리도 가능)
+    // store as a single combined log (it can be split per PID if desired)
     log_fp = fopen("syscalls_sys_generator.log", "w");
     if (!log_fp) { perror("fopen log"); pclose(fp); return 1; }
 

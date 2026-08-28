@@ -5,15 +5,15 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-// 두 맵 모두 (파드 x 시스템콜) 만큼 쓴다. x86-64_ABI.json 이 343 개이므로
-// 파드 하나당 343 칸이다. 4480 이면 13 개 파드에서 차고, N=30 실험은 10,290 칸이
-// 필요하다. 16384 = 47 개 파드까지 여유.
+// Both maps consume (pods x syscalls) entries. x86-64_ABI.json holds 343 syscalls,
+// so one pod takes 343 slots. 4480 fills up at 13 pods, and the N=30 experiment needs
+// 10,290 slots. 16384 leaves room for 47 pods.
 #define MAX_TRACKED_ENTRIES 16384
 
 struct {
-    // LRU_HASH 는 꽉 차도 에러 없이 오래된 항목을 버린다. 그러면 dispatcher 가
-    // 조용히 lookup 실패하고, 실험은 성공한 것처럼 보이면서 데이터만 빈다.
-    // 정확히 사이즈를 잡은 지금은 넘칠 때 E2BIG 로 시끄럽게 실패하는 편이 낫다.
+    // LRU_HASH evicts old entries without an error when it fills up. The dispatcher then
+    // fails lookups silently: the run looks successful while the data is empty.
+    // Now that the size is exact, failing loudly with E2BIG on overflow is preferable.
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, u64);         // (gpid << 32) | syscall_nr
     __type(value, u32);       // index into prog_array_map
@@ -31,7 +31,7 @@ struct {
 
 // struct {
 //     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-//     __uint(max_entries, 128);  // pid 최대 개수
+//     __uint(max_entries, 128);  // maximum number of pids
 //     __type(key, u32);           // pid
 //     __type(value, u64);         // count
 // } counter SEC(".maps");

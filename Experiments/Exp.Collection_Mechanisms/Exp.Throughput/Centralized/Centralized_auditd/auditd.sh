@@ -8,7 +8,7 @@ set -euo pipefail
 NAME="${1:-sys_generator}"
 DUR="${2:-10}"
 
-# --- 필수 커맨드/권한 체크 ---
+# --- check the required commands / privileges ---
 need_cmds=(auditctl ausearch awk grep date pgrep ps)
 for c in "${need_cmds[@]}"; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERR: missing cmd: $c" >&2; exit 1; }
@@ -18,13 +18,13 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# --- auditd 상태 확인 ---
+# --- check the auditd status ---
 if ! pgrep -x auditd >/dev/null 2>&1; then
   echo "ERR: auditd not running (try: systemctl start auditd)" >&2
   exit 1
 fi
 
-# --- PID 수집 (정확 매칭) ---
+# --- collect the PIDs (exact match) ---
 if ! pgrep -x "$NAME" >/dev/null 2>&1; then
     mapfile -t PIDS < <(ps -eo pid=,comm= | awk -v n="$NAME" '$2==n{print $1}')
 else
@@ -37,13 +37,13 @@ if [[ ${#PIDS[@]} -eq 0 ]]; then
 fi
 echo "Found $NAME PIDs: ${PIDS[*]}"
 
-# --- 아키텍처 결정 ---
+# --- determine the architecture ---
 ARCHES=(b64)
 if uname -m | grep -Eq 'x86_64|amd64'; then
   ARCHES=(b64 b32)
 fi
 
-# --- 커널/데몬 설정 확인 ---
+# --- check the kernel / daemon settings ---
 st="$(auditctl -s 2>/dev/null || true)"
 echo "$st" | grep -q 'enabled 1' || {
   echo "ERR: audit not enabled (see 'auditctl -s')" >&2; exit 1;
@@ -53,10 +53,10 @@ if echo "$st" | grep -q 'immutable 1'; then
   exit 1
 fi
 
-# --- rule 키 생성 ---
+# --- create the rule key ---
 make_key() { echo "pid_${1}_trace_$$"; }
 
-# --- rule 설치/삭제 함수 ---
+# --- rule install / remove helpers ---
 install_rules_for_pid() {
   local pid="$1" key="$2"
   for arch in "${ARCHES[@]}"; do
@@ -73,7 +73,7 @@ delete_rules_by_key() {
   auditctl -D -k "$key" >/dev/null 2>&1 || true
 }
 
-# --- 모든 PID에 룰 설치 ---
+# --- install the rule for every PID ---
 declare -A KEYS
 trap 'echo "Cleaning up rules..."; for k in "${KEYS[@]:-}"; do delete_rules_by_key "$k"; done' EXIT HUP INT TERM
 
@@ -86,19 +86,19 @@ for pid in "${PIDS[@]}"; do
   echo "Successfully installed rules for PID $pid with key $key"
 done
 
-# --- 수집 구간 ---
+# --- collection window ---
 echo "Auditing for $DUR seconds..."
 START_TIME_FOR_AUSEARCH="now"
 sleep "$DUR"
 echo "Audit finished."
 
-# --- 룰 제거 ---
+# --- remove the rules ---
 for k in "${KEYS[@]}"; do
   delete_rules_by_key "$k"
 done
 trap - EXIT HUP INT TERM
 
-# --- 결과 집계 ---
+# --- aggregate the results ---
 echo "Aggregating results..."
 
 UNIQUE_KEYS=$(printf -- '-k %s ' "${KEYS[@]}")
@@ -108,7 +108,7 @@ LINES="$(ausearch $UNIQUE_KEYS -ts $START_TIME_FOR_AUSEARCH -m SYSCALL -i 2>/dev
 
 DROPS="$(ausearch -ts $START_TIME_FOR_AUSEARCH -m DAEMON_LOST -i 2>/dev/null | grep -c '^type=DAEMON_LOST' || true)"
 
-# --- 출력 ---
+# --- output ---
 printf "\n--- Results ---\n"
 printf "%-15s %-10s %-10s\n" "duration(sec)" "lines" "drops"
 printf "%-15s %-10s %-10s\n" "$DUR" "$LINES" "$DROPS"

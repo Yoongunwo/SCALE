@@ -223,7 +223,7 @@ static int handle_event(void *ctx, void *data, size_t size) {
     // Evoked: MONOTONIC ns → timespec
     struct timespec ev_ts = ns_to_ts(evt->ts_ns);
 
-    // 사람이 읽을 수 있는 형식 유지
+    // keep the human-readable format
     fprintf(log_fp,
         "Evoked Time=%ld.%06ld, PID=%u syscall=%u\n",
         (long)ev_ts.tv_sec,  (long)(ev_ts.tv_nsec  / 1000),
@@ -298,7 +298,7 @@ int main() {
     register_programs(hash_fd, prog_fd, syscalls, pairs, count);
 
 
-    // 로그 파일
+    // log file
     char file[64] = "syscalls_all.log";
     log_fp = fopen(file, "w");
     if (!log_fp) {
@@ -307,7 +307,7 @@ int main() {
     }
     setvbuf(log_fp, NULL, _IOFBF, 1<<20);
 
-    // 링버퍼
+    // ring buffer
     int rb_fd = bpf_map__fd(skel->maps.ringbuf_local);
     struct ring_buffer *rb = ring_buffer__new(rb_fd, handle_event, NULL, NULL);
     if (!rb) {

@@ -14,11 +14,11 @@ type = always
 format = string
 EOF
 
-# auditd 재적용
+# reapply auditd
 echo "[init] sending HUP to auditd ..."
 pkill -HUP auditd || true
 
-# self-test: 플러그인에 한 줄 흘려보내서 로그파일 생성 확인
+# self-test: push one line through the plugin and confirm the log file is created
 echo 'type=SYSCALL msg=audit(1700000000.123456:1) pid=1234 syscall=60 key="selftest"' \
   | /usr/local/bin/audisp_ts || true
 

@@ -13,7 +13,7 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } targets SEC(".maps");
 
-// (B) 카운터 맵: pid -> count (per-CPU)
+// (B) counter map: pid -> count (per-CPU)
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
     __uint(max_entries, 4096);
@@ -37,7 +37,7 @@ SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_syscall(struct trace_event_raw_sys_enter *ctx) {
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     u16 *on = bpf_map_lookup_elem(&targets, &pid);
-    if (!on) return 0;   // 대상이 아니면 무시
+    if (!on) return 0;   // ignore anything that is not a target
     increment_counter(pid);
     return 0;
 }

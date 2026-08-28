@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <time.h>
-#include <sys/time.h>  // ✅ 이거 꼭 필요
+#include <sys/time.h>  // required
 #include <signal.h>
 
 static FILE *log_fp = NULL;

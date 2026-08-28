@@ -16,7 +16,7 @@ struct pid_ip_pair {
     char pod_name[64];
 };
 
-// jq로 문자열 필드 추출
+// extract a string field with jq
 int extract_string_using_jq(const char *cmd, const char *jq_expr, char *output, size_t len) {
     char full_cmd[512];
     snprintf(full_cmd, sizeof(full_cmd), "%s | jq -r '%s'", cmd, jq_expr);
@@ -25,7 +25,7 @@ int extract_string_using_jq(const char *cmd, const char *jq_expr, char *output, 
     if (!fp) return -1;
 
     if (fgets(output, len, fp)) {
-        output[strcspn(output, "\n")] = '\0';  // 줄바꿈 제거
+        output[strcspn(output, "\n")] = '\0';  // strip the newline
         pclose(fp);
         return 0;
     }
@@ -49,12 +49,12 @@ int create_pid_to_podip_map(struct pid_ip_pair *out_pairs, int *out_count) {
 
         char cmd[256], sandbox_id[128], pod_ip_str[64], pod_name[64] = "unknown";
 
-        // sandboxID 추출
+        // extract the sandboxID
         snprintf(cmd, sizeof(cmd), "crictl inspect %s", container_id);
         if (extract_string_using_jq(cmd, ".info.sandboxID", sandbox_id, sizeof(sandbox_id)) != 0)
             continue;
 
-        // pod IP 추출
+        // extract the pod IP
         snprintf(cmd, sizeof(cmd), "crictl inspectp %s", sandbox_id);
         if (extract_string_using_jq(cmd, ".status.network.ip", pod_ip_str, sizeof(pod_ip_str)) != 0)
             continue;
@@ -63,11 +63,11 @@ int create_pid_to_podip_map(struct pid_ip_pair *out_pairs, int *out_count) {
         if (!inet_aton(pod_ip_str, &addr)) continue;
         uint32_t ip_int = ntohl(addr.s_addr);
 
-        // pod 이름 추출
+        // extract the pod name
         snprintf(cmd, sizeof(cmd), "crictl inspectp %s", sandbox_id);
         extract_string_using_jq(cmd, ".status.metadata.name", pod_name, sizeof(pod_name));
 
-        // shim PID 추출
+        // extract the shim PID
         snprintf(cmd, sizeof(cmd),
                  "ps -ef | grep containerd-shim | grep %s | grep -v grep | awk '{print $2}'",
                  sandbox_id);
@@ -81,7 +81,7 @@ int create_pid_to_podip_map(struct pid_ip_pair *out_pairs, int *out_count) {
         int shim_pid = atoi(cmd);
         if (shim_pid <= 0) continue;
 
-        // sys_generator PID 추출
+        // extract the sys_generator PID
         snprintf(cmd, sizeof(cmd),
                  "pstree -ap %d | grep 'sys_generator' | grep -o ',[0-9]*' | tr -d ','", shim_pid);
         FILE *pstree = popen(cmd, "r");

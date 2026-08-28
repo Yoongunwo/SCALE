@@ -18,7 +18,7 @@ RUN gcc -O2 -Wall -Wextra -o audisp_ts audisp_ts.c && strip audisp_ts
 FROM debian:bookworm-slim
 WORKDIR /opt/dist
 
-# 도구들: auditctl/ausearch(=auditd, audispd-plugins 패키지에서 제공),
+# tools: auditctl/ausearch (from the auditd and audispd-plugins packages),
 #         pgrep/ps(=procps), awk(=gawk), grep
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -31,8 +31,8 @@ COPY --from=build /src/audisp_ts /opt/dist/audisp_ts
 COPY ./auditd.sh /opt/dist/auditd.sh
 COPY ./init.sh   /opt/dist/init.sh
 
-# 실행 가능하게
+# make it executable
 RUN chmod +x /opt/dist/init.sh /opt/dist/auditd.sh /opt/dist/audisp_ts
 
-# ⚠️ 쉘을 통해 && 를 사용해야 하므로 bash -lc로 실행
+# && has to go through a shell, so run it with bash -lc
 CMD ["/bin/bash","-lc","/opt/dist/init.sh && exec sleep infinity"]

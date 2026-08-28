@@ -76,7 +76,7 @@ int get_syscalls(syscall_entry_t **entries_out, size_t *count_out) {
         }
 
         entries[i].number = json_integer_value(num);
-        entries[i].name = strdup(json_string_value(name));  // strdup 사용
+        entries[i].name = strdup(json_string_value(name));  // use strdup
     }
 
     *entries_out = entries;

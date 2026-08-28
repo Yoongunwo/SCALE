@@ -38,13 +38,13 @@ static int handle_event(void *ctx, void *data, size_t size) {
 
 #define PIN_BASE "/sys/fs/bpf"
 
-// stats 맵은 BPF 쪽에서 제거했으므로 핀할 것도 없다.
-// 드롭 집계가 필요해지면 .bpf.c 에 stats 맵을 되살리고 이 함수도 복구할 것.
+// The stats map was removed on the BPF side, so there is nothing to pin.
+// If drop accounting is needed again, restore the stats map in .bpf.c and this function with it.
 
 static __u32 get_pid_from_rootNS(void) {
     __u32 cpid = 0;
 
-    // 1) 컨테이너 PID 찾기
+    // 1) find the container PID
     FILE *pf = popen("ps -C sys_generator -o pid=", "r");
     if (!pf) { perror("popen(ps)"); return 0; }
 
@@ -62,7 +62,7 @@ static __u32 get_pid_from_rootNS(void) {
         return 0;
     }
 
-    // 2) 컨테이너 PID의 cgroup 경로
+    // 2) cgroup path of the container PID
     char cgroup_path[256];
     snprintf(cgroup_path, sizeof(cgroup_path), "/proc/%u/cgroup", cpid);
     FILE *cgf = fopen(cgroup_path, "r");
@@ -84,14 +84,14 @@ static __u32 get_pid_from_rootNS(void) {
         return 0;
     }
 
-    // 3) host /proc에서 같은 cgroup 가진 PID 찾기
+    // 3) find the PID in the host /proc with the same cgroup
     FILE *fp = popen("ls -1 /host/proc | grep -E '^[0-9]+$' | sort -n", "r");
     if (!fp) { perror("popen(ls /host/proc)"); return 0; }
 
     char pid_buf[32];
-    int host_pid = 0;               // ← 바깥 변수 하나만 사용
+    int host_pid = 0;               // <- only this outer variable is used
     while (fgets(pid_buf, sizeof(pid_buf), fp)) {
-        int cand = atoi(pid_buf);   // ← 섀도잉 대신 다른 이름
+        int cand = atoi(pid_buf);   // <- a distinct name instead of shadowing
         if (cand <= 0) continue;
 
         char hcg_path[256];
@@ -107,7 +107,7 @@ static __u32 get_pid_from_rootNS(void) {
         fclose(hcgf);
 
         if (match) {
-            host_pid = cand;        // ← 바깥 변수에 대입
+            host_pid = cand;        // <- assign to the outer variable
             printf("Container PID %u -> Host PID %d\n", cpid, host_pid);
             break;
         }
@@ -118,9 +118,9 @@ static __u32 get_pid_from_rootNS(void) {
 }
 
 int main() {
-    // kubectl logs 로 볼 때 stdout 은 파이프라 glibc 가 전(全)버퍼링(4KB)을 쓴다.
-    // 아래 printf 들이 버퍼에 쌓인 채 무한 poll 루프로 들어가면 로그에 아무것도
-    // 안 나와 "멈춘 것처럼" 보인다. 줄 단위 버퍼링으로 바꿔 즉시 보이게 한다.
+    // Under kubectl logs, stdout is a pipe, so glibc uses full buffering (4KB).
+    // If the printfs below stay in the buffer while we enter the endless poll loop,
+    // nothing appears in the log and it looks "stuck". Line buffering makes it visible immediately.
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     // get target pid
@@ -156,8 +156,8 @@ int main() {
         return 1;
     }
 
-    // rb 선언을 fopen 검사보다 위로 올린다. 아래에 두면 fopen 실패 시
-    // goto cleanup 이 초기화되지 않은 rb 를 읽는다.
+    // Declare rb above the fopen check. Below it, a failing fopen would make
+    // goto cleanup read an uninitialized rb.
     struct ring_buffer *rb = NULL;
 
     char file[64];
@@ -168,9 +168,9 @@ int main() {
         perror("fopen");
         goto cleanup;
     }
-    // 스크립트가 SIGTERM 으로 종료시키는데 핸들러가 없어 fclose 가 안 돈다.
-    // 기본 전(全)버퍼링이면 마지막 4KB(약 100줄)가 통째로 사라지므로
-    // 줄 단위 버퍼링으로 바꿔 꼬리 유실을 막는다.
+    // The script terminates us with SIGTERM, and with no handler fclose never runs.
+    // With the default full buffering the last 4KB (about 100 lines) would be lost entirely,
+    // so switch to line buffering to prevent the tail from disappearing.
     setvbuf(log_fp, NULL, _IOLBF, 0);
 
     int rb_fd = bpf_map__fd(skel->maps.ringbuf_local);

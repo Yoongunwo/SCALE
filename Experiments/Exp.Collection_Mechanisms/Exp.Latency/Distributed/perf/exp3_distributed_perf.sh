@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---- 기본값 ----
+# ---- defaults ----
 PREFIX="${PREFIX:-exp3-}"
 NAMESPACE="${NAMESPACE:-}"
 CONTAINER="${CONTAINER:-proxy}"
@@ -24,7 +24,7 @@ Options:
 EOF
 }
 
-# ---- 옵션 파싱 ----
+# ---- option parsing ----
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--prefix) PREFIX="$2"; shift 2 ;;
@@ -51,13 +51,13 @@ echo "Found ${#PODS[@]} pods."
 
 declare -A PIDMAP
 
-# ---- 수집 전: 이전 로그 삭제 ----
+# ---- before collecting: remove the previous logs ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] pre-clean logs ($LOG_FILE)"
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc 'rm -f '"$LOG_FILE"' 2>/dev/null || true' || true
 done
 
-# ---- collector 시작 ----
+# ---- start the collector ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] starting collector in container '$CONTAINER' -> $CMD_PATH"
   set +e
@@ -83,13 +83,13 @@ done
 echo ">> Collecting for ${DURATION}s..."
 sleep "$DURATION"
 
-# ---- collector 종료 ----
+# ---- stop the collector ----
 for pod in "${PODS[@]}"; do
   PID="${PIDMAP[$pod]:-__UNKNOWN__}"
-  BNAME="$(basename "$CMD_PATH")"   # 실행 파일명만 사용 (예: syscall_collector)
+  BNAME="$(basename "$CMD_PATH")"   # use only the executable name (e.g. syscall_collector)
   echo "[$pod] stopping collector (PID=$PID)"
 
-  # exec 내부에서 sh가 pkill에 맞아 죽지 않도록 -x(정확히 실행파일명 매칭) 사용
+  # use -x (exact executable name match) so the sh inside exec is not killed by pkill
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc '
     set -eu
     PID='"$PID"'
@@ -104,7 +104,7 @@ for pod in "${PODS[@]}"; do
       fi
     fi
 
-    # 최대 3초 기다리며 내려갔는지 확인 (필요하면 SIGKILL 추가 가능)
+    # wait up to 3s to confirm it went down (SIGKILL can be added if needed)
     for i in 1 2 3; do
       sleep 1
       pgrep -x "$BNAME" >/dev/null || exit 0
@@ -113,7 +113,7 @@ for pod in "${PODS[@]}"; do
   ' || true
 done
 
-# ---- 결과 요약: 최신 파일 1개만 사용 ----
+# ---- result summary: use only the newest file ----
 printf "\n%-24s  %-18s  %-12s\n" "POD" "duration(sec)" "lines"
 printf "%-24s  %-18s  %-12s\n" "------------------------" "------------------" "------------"
 
@@ -133,7 +133,7 @@ for pod in "${PODS[@]}"; do
   }
 done
 
-# ---- 각 파드에서 로그 파일 삭제 ----
+# ---- delete the log files in each pod ----
 # echo -e "\n>> Deleting logs in each container ($LOG_FILE)"
 # for pod in "${PODS[@]}"; do
 #   echo "[$pod] rm -f $LOG_FILE"

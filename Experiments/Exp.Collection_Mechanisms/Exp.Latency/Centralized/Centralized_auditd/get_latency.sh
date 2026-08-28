@@ -9,9 +9,9 @@ awk -F'[,:}]' '{
 /var/log/audit/audisp_ts.log
 
 
-# 종료 시 audisp_ts 비활성화
+# disable audisp_ts on exit
 sed -i 's/^active *= *.*/active = no/' /etc/audit/plugins.d/audisp_ts.conf 2>/dev/null \
   || sudo sed -i 's/^active *= *.*/active = no/' /etc/audisp/plugins.d/audisp_ts.conf 2>/dev/null
 
-# auditd에 재적용
+# reapply to auditd
 pkill -HUP auditd

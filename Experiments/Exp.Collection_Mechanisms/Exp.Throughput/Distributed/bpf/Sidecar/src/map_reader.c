@@ -14,7 +14,7 @@
 static __u32 get_pid_from_rootNS(void) {
     __u32 cpid = 0;
 
-    // 1) 컨테이너 PID 찾기
+    // 1) find the container PID
     FILE *pf = popen("ps -C sys_generator -o pid=", "r");
     if (!pf) { perror("popen(ps)"); return 0; }
 
@@ -32,7 +32,7 @@ static __u32 get_pid_from_rootNS(void) {
         return 0;
     }
 
-    // 2) 컨테이너 PID의 cgroup 경로
+    // 2) cgroup path of the container PID
     char cgroup_path[256];
     snprintf(cgroup_path, sizeof(cgroup_path), "/proc/%u/cgroup", cpid);
     FILE *cgf = fopen(cgroup_path, "r");
@@ -54,14 +54,14 @@ static __u32 get_pid_from_rootNS(void) {
         return 0;
     }
 
-    // 3) host /proc에서 같은 cgroup 가진 PID 찾기
+    // 3) find the PID in the host /proc with the same cgroup
     FILE *fp = popen("ls -1 /host/proc | grep -E '^[0-9]+$' | sort -n", "r");
     if (!fp) { perror("popen(ls /host/proc)"); return 0; }
 
     char pid_buf[32];
-    int host_pid = 0;               // ← 바깥 변수 하나만 사용
+    int host_pid = 0;               // <- only this outer variable is used
     while (fgets(pid_buf, sizeof(pid_buf), fp)) {
-        int cand = atoi(pid_buf);   // ← 섀도잉 대신 다른 이름
+        int cand = atoi(pid_buf);   // <- a distinct name instead of shadowing
         if (cand <= 0) continue;
 
         char hcg_path[256];
@@ -77,7 +77,7 @@ static __u32 get_pid_from_rootNS(void) {
         fclose(hcgf);
 
         if (match) {
-            host_pid = cand;        // ← 바깥 변수에 대입
+            host_pid = cand;        // <- assign to the outer variable
             printf("Container PID %u -> Host PID %d\n", cpid, host_pid);
             break;
         }

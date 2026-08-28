@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---- 기본값 ----
+# ---- defaults ----
 PREFIX="${PREFIX:-exp3-}"
 NAMESPACE="${NAMESPACE:-}"
 CONTAINER="${CONTAINER:-proxy}"
@@ -24,7 +24,7 @@ Options:
 EOF
 }
 
-# ---- 옵션 파싱 ----
+# ---- option parsing ----
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--prefix) PREFIX="$2"; shift 2 ;;
@@ -51,13 +51,13 @@ echo "Found ${#PODS[@]} pods."
 
 declare -A PIDMAP
 
-# ---- 수집 전: 이전 로그 삭제 ----
+# ---- before collecting: remove the previous logs ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] pre-clean logs ($LOG_FILE)"
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc 'rm -f '"$LOG_FILE"' 2>/dev/null || true' || true
 done
 
-# ---- collector 시작 ----
+# ---- start the collector ----
 for pod in "${PODS[@]}"; do
   echo "[$pod] starting collector in container '$CONTAINER' -> $CMD_PATH"
   set +e
@@ -83,7 +83,7 @@ done
 echo ">> Collecting for ${DURATION}s..."
 sleep "$DURATION"
 
-# ---- collector 종료 ----
+# ---- stop the collector ----
 for pod in "${PODS[@]}"; do
   PID="${PIDMAP[$pod]:-__UNKNOWN__}"
   echo "[$pod] stopping collector (PID=$PID)"
@@ -91,7 +91,7 @@ for pod in "${PODS[@]}"; do
     "{ [ \"$PID\" != \"__UNKNOWN__\" ] && kill -TERM \"$PID\" 2>/dev/null; } || pkill -f \"$CMD_PATH\" 2>/dev/null || true"
 done
 
-# ---- 결과 요약: 최신 파일 1개만 사용 ----
+# ---- result summary: use only the newest file ----
 printf "\n%-24s  %-18s  %-12s\n" "POD" "duration(sec)" "lines"
 printf "%-24s  %-18s  %-12s\n" "------------------------" "------------------" "------------"
 
@@ -111,14 +111,14 @@ for pod in "${PODS[@]}"; do
   }
 done
 
-# ---- 각 파드에서 로그 파일 삭제 ----
+# ---- delete the log files in each pod ----
 echo -e "\n>> Deleting logs in each container ($LOG_FILE)"
 for pod in "${PODS[@]}"; do
   echo "[$pod] rm -f $LOG_FILE"
   kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$pod" -- sh -lc 'rm -f '"$LOG_FILE"' 2>/dev/null || true' || true
 done
 
-# ---- ftrace 인스턴스 정리 (첫 번째 파드에서만) ----
+# ---- clean up the ftrace instance (only on the first pod) ----
 FIRST_POD="${PODS[0]}"
 echo -e "\n>> Cleaning ftrace instances once in $FIRST_POD"
 kubectl exec "${NSFLAG[@]}" -c "$CONTAINER" "$FIRST_POD" -- sh -lc '

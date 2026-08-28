@@ -1,20 +1,20 @@
 // v3/sys_generator.c
-// v2 와 동일한 syscall 종류·순서를 유지하고, 각 호출 직전/직후 시각만 찍는다.
+// Keeps the same syscall kinds and order as v2, stamping the time only right before and after each call.
 //
-// 목적
-//   dispatcher 가 map lookup 2회 + tail call 1회를 얹으면 syscall 한 번의 왕복이
-//   얼마나 늘어나는지를 애플리케이션 쪽에서 직접 잰다.
+// Purpose
+//   Measures directly, from the application side, how much a single syscall round trip
+//   grows once the dispatcher adds two map lookups and one tail call.
 //
-// 비교 조건 (같은 바이너리로 네 번 돌린다)
+// Comparison conditions (the same binary is run four times)
 //   baseline / central / distributed / scale
-//   컨테이너 수를 1,5,10,20,30 으로 늘리면 distributed 는 선형 증가,
-//   scale 은 평평해야 한다. GEN_LABEL 로 조건을 구분해 기록한다.
+//   As the container count grows to 1, 5, 10, 20, 30, distributed should rise linearly
+//   while scale stays flat. GEN_LABEL distinguishes the conditions in the records.
 //
-// 측정에 대하여
-//   clock_gettime(CLOCK_MONOTONIC) 자체가 ~25ns 든다. 그래서 아래 값들은
-//   그만큼 부풀려져 있다. 다만 그 비용은 조건과 무관하게 일정하므로
-//   baseline 대비 증가분(delta)은 그대로 유효하다. 절대값이 필요하면
-//   부록에 타이머 오버헤드를 따로 재서 빼면 된다 (아래 'timer' 항목).
+// About the measurement
+//   clock_gettime(CLOCK_MONOTONIC) itself costs ~25ns, so the values below are
+//   inflated by that much. That cost is constant across conditions, however, so
+//   the delta against the baseline stays valid. If absolute values are needed,
+//   measure the timer overhead separately and subtract it (the 'timer' entry below).
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -31,7 +31,7 @@
 
 #define NS_PER_SEC 1000000000L
 
-// 지연 히스토그램: 1ns 단위, 65us 까지. 그 위는 overflow 로 센다.
+// Latency histogram: 1ns buckets up to 65us. Anything above is counted as overflow.
 #define HIST_MAX 65536
 
 volatile sig_atomic_t triggered = 0;
@@ -51,7 +51,7 @@ void handle_sigusr1(int signo) {
     triggered = 1;
 }
 
-// v2 의 호출 순서를 그대로 옮긴 것 + 타이머 자기측정 1개
+// v2's call order carried over verbatim, plus one timer self-measurement
 enum {
     S_GETPID, S_GETPPID, S_GETUID, S_CLOCK_GETTIME, S_GETTIMEOFDAY,
     S_SCHED_YIELD, S_OPENAT, S_READ, S_CLOSE, S_MMAP, S_TIMER, S_N
@@ -77,7 +77,7 @@ static inline void record(int k, uint64_t d) {
     if (d < HIST_MAX) hist[k][d]++; else ovf[k]++;
 }
 
-// 호출 직전/직후를 감싸는 매크로. v2 의 각 줄을 이걸로 바꾸기만 했다.
+// Macro wrapping each call. Every line of v2 was simply replaced with it.
 #define TIMED(k, CALL) do {              \
         uint64_t _a = now_ns();          \
         CALL;                            \
@@ -104,7 +104,7 @@ void perform_syscalls(long duration_sec, long rate_limit) {
         clock_gettime(CLOCK_MONOTONIC, &now);
         if ((now.tv_sec - start.tv_sec) >= duration_sec) break;
 
-        // --- v2 와 동일한 종류·순서 ---
+        // --- same kinds and order as v2 ---
         TIMED(S_GETPID,        syscall(SYS_getpid));
         TIMED(S_GETPPID,       syscall(SYS_getppid));
         TIMED(S_GETUID,        syscall(SYS_getuid));
@@ -123,8 +123,8 @@ void perform_syscalls(long duration_sec, long rate_limit) {
         TIMED(S_MMAP, syscall(SYS_mmap, NULL, 4096, PROT_READ | PROT_WRITE,
                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
 
-        // 타이머 자기측정: syscall 없이 now_ns() 두 번의 간격.
-        // 위 값들에 섞여 있는 타이머 비용이 얼마인지 같은 조건에서 알 수 있다.
+        // Timer self-measurement: the gap between two now_ns() calls, with no syscall.
+        // Shows, under the same conditions, how much timer cost is baked into the values above.
         { uint64_t a = now_ns(); uint64_t b = now_ns(); record(S_TIMER, b - a); }
 
         if (nanos_per_loop > 0) {
@@ -134,14 +134,14 @@ void perform_syscalls(long duration_sec, long rate_limit) {
     }
 }
 
-// 결과를 stdout 에 찍는다. GEN_OUT_DIR 이 있으면 회차별 파일도 남긴다.
-//   파일은 컨테이너 안에 생기므로 꺼내려면 emptyDir/hostPath 마운트가 필요하다.
-//   마운트가 없으면 파드 종료와 함께 사라지므로 기본값은 stdout 전용이다.
+// Prints the results to stdout. If GEN_OUT_DIR is set, a per-round file is written too.
+//   The file is created inside the container, so an emptyDir/hostPath mount is needed to retrieve it.
+//   Without a mount it disappears with the pod, so the default is stdout only.
 static void report(const char* label, const char* host, long run, const char* out_dir) {
     FILE *fp = NULL;
     if (out_dir && *out_dir) {
         char path[512];
-        mkdir(out_dir, 0755);            // 이미 있으면 EEXIST 로 무시된다
+        mkdir(out_dir, 0755);            // ignored with EEXIST if it already exists
         snprintf(path, sizeof(path), "%s/%s_%s_run%ld.csv", out_dir, label, host, run);
         fp = fopen(path, "w");
         if (!fp) fprintf(stderr, "[!] fopen %s: %s\n", path, strerror(errno));
@@ -163,7 +163,7 @@ static void report(const char* label, const char* host, long run, const char* ou
                (unsigned long long)pct(k, 0.50), (unsigned long long)pct(k, 0.99),
                (unsigned long long)mn[k], (unsigned long long)mx[k]);
     }
-    // 기계 판독용
+    // machine readable
     for (int k = 0; k < S_N; k++) {
         if (!cnt[k]) continue;
         double mean = (double)sum[k] / (double)cnt[k];
@@ -184,7 +184,7 @@ static void report(const char* label, const char* host, long run, const char* ou
     if (fp) fclose(fp);
     for (int k = 0; k < S_N; k++)
         if (ovf[k])
-            printf("[!] %s: %llu 건이 %d ns 를 넘었다 (스케줄 아웃/인터럽트 추정)\n",
+            printf("[!] %s: %llu samples exceeded %d ns (likely scheduled out / interrupted)\n",
                    S_NAME[k], (unsigned long long)ovf[k], HIST_MAX);
     fflush(stdout);
 }
@@ -201,9 +201,9 @@ int main() {
     long duration_sec = get_env_long("GEN_DURATION_SEC", 10);
     long rate_limit   = get_env_long("GEN_RATE_LIMIT", 0);
     const char* label   = get_env_str("GEN_LABEL", "baseline");
-    const char* out_dir = get_env_str("GEN_OUT_DIR", "");   // 비면 stdout 전용
+    const char* out_dir = get_env_str("GEN_OUT_DIR", "");   // empty means stdout only
     char host[256] = "unknown";
-    gethostname(host, sizeof(host) - 1);   // k8s 에서는 파드 이름이 들어온다
+    gethostname(host, sizeof(host) - 1);   // on k8s this yields the pod name
     long run = 0;
 
     for (int k = 0; k < S_N; k++) {
@@ -224,7 +224,7 @@ int main() {
             printf("[+] Received signal, generating syscalls for %ld sec\n", duration_sec);
             fflush(stdout);
             triggered = 0;
-            reset_stats();                 // 회차마다 통계를 새로 시작한다
+            reset_stats();                 // restart the statistics for each round
             perform_syscalls(duration_sec, rate_limit);
             report(label, host, ++run, out_dir);
             printf("[+] Finished syscall generation, waiting again...\n");

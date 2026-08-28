@@ -10,8 +10,8 @@ TARGET    := $(BUILD_DIR)/syscall_collector
 CC      := gcc
 CFLAGS  ?= -O2 -g -Wall -Wextra -std=gnu11 -D_GNU_SOURCE
 LDFLAGS ?=
-# NOTE: 일부 오래된 glibc에서는 clock_gettime 위해 -lrt 필요.
-# 최신 배포판에서도 문제 없으나, 에러나면 LDLIBS를 비우세요.
+# NOTE: some older glibc versions need -lrt for clock_gettime.
+# It is fine on modern distributions; if it errors out, clear LDLIBS.
 LDLIBS  ?= -lrt
 
 # Sources / Objects
@@ -34,6 +34,6 @@ $(BUILD_DIR):
 clean:
 	rm -rf $(BUILD_DIR)
 
-# 편의: root 권한 필요할 수 있음
+# convenience: may require root privileges
 run: $(TARGET)
 	sudo $(TARGET)

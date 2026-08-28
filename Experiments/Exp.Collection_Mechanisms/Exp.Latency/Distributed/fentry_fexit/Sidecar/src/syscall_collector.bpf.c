@@ -33,7 +33,7 @@ struct {
 static __always_inline void incr(u32 idx)
 {
     u64 *p = bpf_map_lookup_elem(&stats, &idx);
-    if (p) (*p)++;  // percpu map이라 원자성 걱정 덜함
+    if (p) (*p)++;  // percpu map, so atomicity is less of a concern
 }
 
 SEC("fentry/__x64_sys_read")

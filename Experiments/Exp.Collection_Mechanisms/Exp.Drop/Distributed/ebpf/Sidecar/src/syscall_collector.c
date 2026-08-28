@@ -40,7 +40,7 @@ static void die(const char* msg){ perror(msg); exit(1); }
 static int handle_event(void *ctx, void *data, size_t size) {
     const struct syscall_event_t *evt = data;
     struct timespec ev_ts = ns_to_ts(evt->ts_ns);
-    // 사람이 보기 좋은 형식 (초.마이크로초)
+    // human-friendly format (seconds.microseconds)
     fprintf(log_fp, "Evoked Time=%ld.%06ld, PID=%u syscall=%u\n",
             (long)ev_ts.tv_sec, (long)(ev_ts.tv_nsec/1000),
             evt->pid, evt->syscall_nr);
@@ -71,7 +71,7 @@ static void pin_stats_map_label(struct syscall_collector_bpf *skel, const char *
     }
 }
 
-/* IP 얻기 */
+/* obtain the IP */
 static int get_ipv4_for_iface(const char *ifname, char *buf, size_t buflen) {
     struct ifaddrs *ifaddr = NULL, *ifa = NULL;
     if (getifaddrs(&ifaddr) == -1) return -1;
@@ -164,7 +164,7 @@ static int read_cgroup_path_for_proc(int pid, char *buf, size_t bufsz){
     strncpy(buf,chosen,bufsz-1); buf[bufsz-1]=0; return 0;
 }
 
-/* FIX: __32 → __u32, 반환형/지역변수 타입 수정 */
+/* FIX: __32 -> __u32, corrected the return type and the local variable types */
 static __u32 find_host_tgid_by_cgroup_and_comm(const char *host_proc_root,
                                                const char *cgroup_path,
                                                const char *comm_target){
@@ -205,22 +205,22 @@ int main(void) {
     const char *HOST_PROC = getenv("HOST_PROC"); if(!HOST_PROC||!*HOST_PROC) HOST_PROC="/host/proc";
     const char *FILTER_MODE = getenv("FILTER_MODE"); /* "set_event_pid" or "event_filter" */
     int use_set_event_pid = (FILTER_MODE && strcmp(FILTER_MODE,"set_event_pid")==0) ? 1 : 0;
-    (void)use_set_event_pid; // 현재 사용 안 함
+    (void)use_set_event_pid; // currently unused
 
     if(access(HOST_PROC,R_OK)!=0){
         fprintf(stderr,"[ERR] %s not accessible. Mount host /proc there.\n", HOST_PROC);
         return 1;
     }
 
-    /* 1) 같은 Pod에서 postmark 하나 고르기 */
+    /* 1) pick one postmark from the same Pod */
     int c_tgid = pick_one_tgid_by_comm("postmark");
     if(c_tgid<=0){ fprintf(stderr,"[ERR] no postmark in this container\n"); return 1; }
 
-    /* 2) 컨테이너 TIDs (정보용) */
+    /* 2) container TIDs (informational) */
     int c_tids[512]; int n_ctids = collect_tids_for_tgid(c_tgid, c_tids, 512);
     fprintf(stderr,"[INFO] container TGID=%d, TIDs=%d (ex: %d)\n", c_tgid, n_ctids, n_ctids?c_tids[0]:-1);
 
-    /* 3) host TGID 매핑 */
+    /* 3) host TGID mapping */
     char cg[512];
     if(read_cgroup_path_for_proc(c_tgid, cg, sizeof(cg))!=0){
         fprintf(stderr,"[ERR] cannot read cgroup path for %d\n", c_tgid); return 1;
@@ -231,7 +231,7 @@ int main(void) {
         return 1;
     }
 
-    /* eBPF 로드/어태치 */
+    /* load / attach eBPF */
     struct syscall_collector_bpf *skel = syscall_collector_bpf__open_and_load();
     if (!skel) die("open_and_load");
     if (syscall_collector_bpf__attach(skel)) {
@@ -239,7 +239,7 @@ int main(void) {
         die("attach");
     }
 
-    /* PID 필터 설정 */
+    /* configure the PID filter */
     __u8 one = 1;
     if (bpf_map_update_elem(bpf_map__fd(skel->maps.pid_filter_map),
                             &target_pid, &one, BPF_ANY) != 0) {
@@ -247,20 +247,20 @@ int main(void) {
         die("pid_filter_map");
     }
 
-    /* IP 라벨 핀 (실패 시 진행 계속) */
+    /* pin the IP label (continue on failure) */
     char label[INET_ADDRSTRLEN] = {0};
     if (get_self_ipv4(label, sizeof(label)) == 0) {
         pin_stats_map_label(skel, label);
     }
 
-    /* 로그 파일 */
+    /* log file */
     char file[64];
     snprintf(file, sizeof(file), "syscalls_%u.log", target_pid);
     log_fp = fopen(file, "w");
     if (!log_fp) { perror("fopen log"); goto cleanup; }
     setvbuf(log_fp, NULL, _IOFBF, 1<<20);
 
-    /* 링버퍼 */
+    /* ring buffer */
     int rb_fd = bpf_map__fd(skel->maps.ringbuf_local);
     struct ring_buffer *rb = ring_buffer__new(rb_fd, handle_event, NULL, NULL);
     if (!rb) { fprintf(stderr, "ring_buffer__new failed\n"); goto cleanup; }
@@ -277,8 +277,8 @@ int main(void) {
 
 cleanup:
     if (log_fp) { fflush(log_fp); fclose(log_fp); }
-    // 올바른 해제: 생성한 rb를 넘겨서 free
-    // (여기서 rb가 scope 밖이면 위로 끌어올리세요)
+    // Correct teardown: pass the rb we created to free
+    // (if rb is out of scope here, move its declaration up)
     // ring_buffer__free(rb);
     syscall_collector_bpf__destroy(skel);
     return 0;

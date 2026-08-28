@@ -25,7 +25,7 @@ while getopts ":n:p:c:h" opt; do
   esac
 done
 
-# Pod 목록 (Running 상태만)
+# pod list (Running only)
 mapfile -t PODS < <(kubectl get pods -n "$NS" \
   --field-selector=status.phase=Running \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E "^${POD_PREFIX}")
@@ -38,15 +38,15 @@ fi
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
-# 각 Pod에서: 최신 syscalls_*.log 찾고, 마지막에서 두 번째 줄을 출력
+# For each Pod: find the newest syscalls_*.log and print its second-to-last line
 for pod in "${PODS[@]}"; do
-  # 원격에서 실행할 쉘 스니펫
+  # shell snippet to run remotely
   read -r -d '' REMOTE <<'SH' || true
 set -e
-# 후보 경로에서 최신 파일 선택
+# pick the newest file among the candidate paths
 f=""
 for p in /var/log/syscalls_*.log /tmp/syscalls_*.log /workspace/syscalls_*.log /app/syscalls_*.log; do
-  # 글롭이 실패해도 에러 안나게: nullglob 비슷한 동작
+  # keep the glob from erroring out when it does not match: nullglob-like behaviour
   for cand in $p; do
     [ -e "$cand" ] || continue
     echo "$cand"
@@ -55,13 +55,13 @@ done | xargs -r ls -1t 2>/dev/null | head -1 > /tmp/.syslog_candidate || true
 
 if [ -s /tmp/.syslog_candidate ]; then
   f="$(cat /tmp/.syslog_candidate)"
-  # 마지막에서 2번째 줄
+  # second-to-last line
   # tail -n 2 "$f" | head -n 1
   tail -n 1 "$f" | head -n 1
 fi
 SH
 
-  # kubectl exec (컨테이너 지정 여부)
+  # kubectl exec (with or without an explicit container)
   if [[ -n "$CONTAINER" ]]; then
     LINE="$(kubectl exec -n "$NS" -c "$CONTAINER" "$pod" -- sh -lc "$REMOTE" 2>/dev/null || true)"
   else
@@ -73,7 +73,7 @@ SH
     continue
   fi
 
-  # Evoked / Collected 파싱
+  # parse Evoked / Collected
   EV="$(sed -n 's/.*Evoked Time=\([0-9]\+\.[0-9]\+\).*/\1/p' <<<"$LINE" | head -n1)"
   CO="$(sed -n 's/.*Collected Time=\([0-9]\+\.[0-9]\+\).*/\1/p' <<<"$LINE" | head -n1)"
 
@@ -82,7 +82,7 @@ SH
     continue
   fi
 
-  # 결과를 일괄 처리용으로 저장: "<pod> <evoked> <collected>"
+  # store the result for batch processing: "<pod> <evoked> <collected>"
   echo "$pod $EV $CO" >> "$TMP"
 done
 
@@ -91,7 +91,7 @@ if [[ ! -s "$TMP" ]]; then
   exit 2
 fi
 
-# 출력: Pod별 값 + 전체 통계(가장 이른 Evoked, 가장 늦은 Collected, 차이)
+# output: per-Pod values + overall statistics (earliest Evoked, latest Collected, difference)
 awk '
 {
   pod=$1; ev=$2; co=$3;

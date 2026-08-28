@@ -17,10 +17,10 @@
 #define MAP_PATH "/sys/fs/bpf/syscall_stats"
 
 static void sanitize_label(char *s) {
-    // 파일명 안전화를 위해 점/공백 등은 밑줄로 변환
+    // turn dots, spaces and the like into underscores to keep the file name safe
     for (char *p = s; *p; ++p) {
         if (*p == '.' || *p == ' ' || *p == ':' ) *p = '_';
-        // 필요하면 더 추가
+        // add more if needed
     }
 }
 
@@ -34,7 +34,7 @@ static int get_ipv4_for_iface(const char *ifname, char *buf, size_t buflen) {
         if (!ifa->ifa_name || strcmp(ifa->ifa_name, ifname) != 0) continue;
 
         unsigned flags = ifa->ifa_flags;
-        if (!(flags & IFF_UP)) continue;      // RUNNING까지 요구하지 않음
+        if (!(flags & IFF_UP)) continue;      // RUNNING is not required
         if (flags & IFF_LOOPBACK) continue;
 
         struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;

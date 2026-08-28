@@ -3,24 +3,24 @@ set -euo pipefail
 
 # =========================
 # audit_syscalls_by_comm.sh
-# - auditd로 특정 프로세스(comm)의 syscalls 수집
-# - 규칙은 comm 대신 exe(실행파일 경로) 기준으로 설치
-# - 수집 시간 동안 SYSCALL 카운트/초당(EPS) 및 DAEMON_LOST 감지
+# - collect the syscalls of one process (comm) with auditd
+# - the rules are installed by exe (executable path) rather than by comm
+# - over the collection window, count SYSCALL records, compute EPS, and detect DAEMON_LOST
 #
-# 요구사항:
-#  1) 호스트에서 실행 권장 (컨테이너면 /var/log/audit 및 auditctl/ausearch 사용 가능해야 함)
-#  2) auditd 실행 중이어야 하며 커널 audit 켜짐 (enabled=1)
+# Requirements:
+#  1) preferably run on the host (in a container, /var/log/audit and auditctl/ausearch must be usable)
+#  2) auditd must be running with kernel auditing enabled (enabled=1)
 # =========================
 
-COMM="${1:-sys_generator}"   # 대상 프로세스명 (comm)
-DUR="${2:-10}"               # 수집(대기) 시간(초)
+COMM="${1:-sys_generator}"   # target process name (comm)
+DUR="${2:-10}"               # collection (wait) time in seconds
 KEY="${3:-sysgen_trace}"     # audit rule key
-VERBOSE="${VERBOSE:-1}"      # 1: 로그 노출
+VERBOSE="${VERBOSE:-1}"      # 1: show the logs
 
-# 전역(검출된 아키)
+# global (the detected architecture)
 ARCHES=()
 
-# ---------- 유틸 ----------
+# ---------- utilities ----------
 err(){ echo "ERR: $*" >&2; }
 log(){ [[ "$VERBOSE" == "1" ]] && echo "[*] $*"; }
 
@@ -37,7 +37,7 @@ check_auditd() {
     err "auditd not running. Start it (e.g., 'sudo systemctl start auditd')."
     exit 1
   fi
-  # enabled=1 확인
+  # confirm enabled=1
   if ! auditctl -s 2>/dev/null | grep -q '^enabled[[:space:]]\+1'; then
     err "auditd is not enabled (enabled!=1). Check kernel boot param 'audit=1' or policies."
     exit 1
@@ -45,17 +45,17 @@ check_auditd() {
 }
 
 detect_arches() {
-  # 안전하게 b64만 먼저. (필요 시 b32는 별도로 확장)
+  # start safely with b64 only (extend to b32 separately if needed)
   ARCHES=(b64)
   log "arches: ${ARCHES[*]}"
 }
 
 dump_syscall_list() {
-  # 사용가능한 syscall 이름 전체 목록
+  # the full list of usable syscall names
   ausyscall --dump 2>/dev/null | awk 'NR>1 {print $2}' | sort -u
 }
 
-# COMM으로 실행 중인 PID들의 exe 경로를 유니크 수집
+# collect the unique exe paths of the PIDs running as COMM
 collect_exe_paths_for_comm() {
   local comm="$1"
   local -a pids=()
@@ -81,9 +81,9 @@ collect_exe_paths_for_comm() {
   done
 }
 
-# exe 경로 하나에 대해 규칙 설치 (작은 청크로 분할)
+# install the rules for one exe path (split into small chunks)
 install_rules_for_exe() {
-  local exe_path="$1"    # /app/sys_generator 같은 절대경로
+  local exe_path="$1"    # an absolute path such as /app/sys_generator
   local syscall_list="$2"
   local rc=0
   local MAX_PER_RULE=32
@@ -91,7 +91,7 @@ install_rules_for_exe() {
   for arch in "${ARCHES[@]}"; do
     local -a chunk=()
     local cnt=0
-    # 리스트는 공백으로 구분된 토큰들
+    # the list is whitespace separated tokens
     for sc in $syscall_list; do
       chunk+=("$sc"); ((cnt++))
       if (( cnt >= MAX_PER_RULE )); then
@@ -123,7 +123,7 @@ install_rules_for_exe() {
   done
 }
 
-# 여러 exe 경로에 대해 규칙 설치 래퍼
+# wrapper that installs the rules for several exe paths
 install_rules() {
   local syscall_list="$1"
   local -a exes=()
@@ -139,21 +139,21 @@ install_rules() {
 }
 
 delete_rules() {
-  # KEY로 태깅된 규칙들 제거
+  # remove the rules tagged with KEY
   auditctl -D -k "$KEY" >/dev/null 2>&1 || true
 }
 
 count_events_in_window() {
   local start_ts="$1"  # "YYYY-MM-DD HH:MM:SS"
   local end_ts="$2"
-  # SYSCALL 레코드 개수로 카운트(헤더/경로 등 부수 레코드 제외)
+  # count SYSCALL records only (excluding auxiliary records such as headers and paths)
   ausearch -k "$KEY" --start "$start_ts" --end "$end_ts" -m SYSCALL 2>/dev/null \
     | grep -c '^type=SYSCALL' || true
 }
 
 check_lost_events() {
   local start_ts="$1" end_ts="$2"
-  # DAEMON_LOST 메시지 존재 여부
+  # whether a DAEMON_LOST message is present
   if ausearch --start "$start_ts" --end "$end_ts" -m DAEMON_LOST >/dev/null 2>&1; then
     echo 1
   else
@@ -170,7 +170,7 @@ main() {
   log "duration    : ${DUR}s"
   log "rule key    : ${KEY}"
 
-  # syscall 이름 목록 획득
+  # obtain the syscall name list
   local SYSCALLS
   SYSCALLS="$(dump_syscall_list)"
   if [[ -z "$SYSCALLS" ]]; then
@@ -178,7 +178,7 @@ main() {
     exit 1
   fi
 
-  # 현재 실행 중인 PIDs (참고용)
+  # the currently running PIDs (for reference)
   local -a PIDS=()
   if command -v pgrep >/dev/null 2>&1; then
     mapfile -t PIDS < <(pgrep -x "$COMM" || true)
@@ -187,19 +187,19 @@ main() {
   fi
   log "current PIDs : ${PIDS[*]:-<none>}"
 
-  # 종료 시 규칙 정리
+  # clean up the rules on exit
   trap 'delete_rules || true' EXIT
 
-  # 기존 동일 KEY 룰 제거 후 설치
+  # remove any existing rules with the same KEY, then install
   delete_rules || true
   if ! install_rules "$SYSCALLS"; then
     echo "[!] Installing audit rules failed." >&2
-    echo "    - 확인: 'auditctl -s' enabled=1, auditd running" >&2
-    echo "    - 프로세스가 실행 중인지(경로 추출 필요)" >&2
+    echo "    - check: 'auditctl -s' enabled=1, auditd running" >&2
+    echo "    - whether the process is running (its path has to be extracted)" >&2
     exit 1
   fi
 
-  # 수집 구간
+  # collection window
   local start_ts end_ts
   start_ts="$(date '+%Y-%m-%d %H:%M:%S')"
   log "collection start: ${start_ts}"
@@ -207,10 +207,10 @@ main() {
   end_ts="$(date '+%Y-%m-%d %H:%M:%S')"
   log "collection end  : ${end_ts}"
 
-  # 룰 제거 (trap에서도 한 번 더 제거됨)
+  # remove the rules (the trap removes them once more)
   delete_rules || true
 
-  # 이벤트 개수 / EPS / 유실
+  # event count / EPS / losses
   local total eps lost
   total="$(count_events_in_window "$start_ts" "$end_ts")"
   total="${total:-0}"

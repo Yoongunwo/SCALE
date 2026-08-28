@@ -10,7 +10,7 @@ TOPK = 10
 def run(cmd):
     return subprocess.check_output(cmd, shell=True, text=True).strip()
 
-# 1. Running 중인 Pod 목록 가져오기
+# 1. get the list of Running Pods
 pods = run(
     f"kubectl get pods -n {NS} "
     f"--field-selector=status.phase=Running "
@@ -22,7 +22,7 @@ if not pods:
     print("No running pods.")
     exit(1)
 
-# 2. Pod별 tail 결과 가져오기
+# 2. get the tail output of each Pod
 pod_lines = {}
 for pod in pods:
     try:
@@ -43,7 +43,7 @@ if not pod_lines:
     print("No valid data collected.")
     exit(2)
 
-# 3. 각 line index별로 모든 pod 비교
+# 3. compare every pod at each line index
 results = []
 for n in range(LINES):
     min_ev, max_co = None, None
@@ -63,12 +63,12 @@ for n in range(LINES):
         elapsed = max_co - min_ev
         results.append((n+1, min_ev, max_co, elapsed))
 
-# 4. 결과 정렬 후 출력
+# 4. sort the results and print them
 if not results:
     print("No valid elapsed times.")
     exit(3)
 
-results.sort(key=lambda x: x[3])  # elapsed 기준 오름차순
+results.sort(key=lambda x: x[3])  # ascending by elapsed
 sum = 0.0   
 
 print(f"=== Top {TOPK} fastest elapsed times ===")

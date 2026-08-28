@@ -17,8 +17,8 @@ spec:
           image: # Custom Benchmark image for application-observed overhead experiment
           imagePullPolicy: Always
           resources:
-            # 벤치마크는 스로틀되면 안 된다. CFS 스로틀이 끼면 100ms 주기 중
-            # 멈춘 구간이 그대로 이상치가 되어 p99 를 오염시킨다.
+            # The benchmark must not be throttled. With CFS throttling the stalled part
+            # of each 100ms period becomes an outlier and pollutes p99.
             requests:
               cpu: '30m'
             limits:
@@ -27,7 +27,7 @@ spec:
             - name: GEN_DURATION_SEC
               value: '30'
             - name: GEN_RATE_LIMIT
-              value: '0' # 0 = 제한 없음. 연속 호출로 최대한 많은 표본
+              value: '0' # 0 = unlimited. Back-to-back calls for as many samples as possible
             - name: GEN_LABEL # baseline | central | distributed | scale
               value: 'baseline'
       nodeSelector:

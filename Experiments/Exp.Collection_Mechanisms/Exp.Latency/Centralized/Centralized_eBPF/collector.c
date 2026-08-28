@@ -56,7 +56,7 @@ static int handle_event(void *ctx, void *data, size_t size) {
     // Evoked: MONOTONIC ns → timespec
     struct timespec ev_ts = ns_to_ts(evt->ts_ns);
 
-    // 사람이 읽을 수 있는 형식 유지
+    // keep the human-readable format
     fprintf(log_fp,
         "Evoked Time=%ld.%06ld, Collected Time=%ld.%06ld PID=%u syscall=%u\n",
         (long)ev_ts.tv_sec,  (long)(ev_ts.tv_nsec  / 1000),
@@ -91,28 +91,28 @@ int main() {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    // BPF 프로그램 로드
+    // load the BPF program
     skel = collector_bpf__open_and_load();
     if (!skel) {
         fprintf(stderr, "Failed to load BPF skeleton\n");
         return 1;
     }
 
-    // BPF 프로그램 attach
+    // attach the BPF program
     err = collector_bpf__attach(skel);
     if (err) {
         fprintf(stderr, "Failed to attach BPF programs: %d\n", err);
         goto cleanup;
     }
 
-    // sys_generator PID 찾기
+    // find the sys_generator PID
     FILE *fp = popen("pidof sys_generator || pidof postmark", "r");
     if (!fp) {
         fprintf(stderr, "Failed to run pidof\n");
         goto cleanup;
     }
     
-    // BPF map에 target PID 등록
+    // register the target PID in the BPF map
     while (fscanf(fp, "%u", &pid) == 1) {
         err = bpf_map_update_elem(
             bpf_map__fd(skel->maps.target_pids),
@@ -127,14 +127,14 @@ int main() {
     
     pclose(fp);
 
-    // 로그 파일 열기
+    // open the log file
     log_fp = fopen("syscalls.log", "w");
     if (!log_fp) {
         perror("fopen");
         goto cleanup;
     }
 
-    // ring buffer 생성
+    // create the ring buffer
     rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
     if (!rb) {
         fprintf(stderr, "Failed to create ring buffer\n");
