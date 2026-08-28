@@ -40,25 +40,31 @@ The evaluation results can be found in the paper (currently under review). The m
 
 The `Evaluation` directory is organized as follows:
 
-1. Benchmarks used in our experiments
+1. Benchmarks used in our experiments (`Experiments/Benchmark`)
    - This project uses the following benchmarks. Since our environment is containerized, each benchmark must be built as a container image. The Dockerfiles for these benchmarks are located in the `Experiments/Benchmark` folder.
-   - Benchmarks
+   - **Benchmarks**
      - Custom Benchmark
      - Postmark Benchmark
-2. Performance comparison with existing system call collection mechanisms (Throughput, Drop, Latency)
+2. Performance comparison with existing system call collection mechanisms (`Experiments/Exp.Collection_machanisms`)
    - 2.1 Centralized Pattern
-     - Baselines: Auditd, Perf, Sysdig, eBPF
+     - **Baselines**: Auditd, Perf, Sysdig, eBPF
    - 2.2 Distributed Pattern
-     - Baselines: Perf, ftrace, eBPF
+     - **Baselines**: Perf, ftrace, eBPF
 
-3. Performance comparison with existing systems (Throughput, Drop, Latency)
+3. Performance comparison with existing systems (`Experiments/Exp.Comparison_with_existing_systems`)
    - Installation and experiment instructions for these baselines can be found in `Experiments/Exp.Comparison_with_existing_systems/README*.md`.
-   - Baselines: Tetragon, Tracee, eAudit, NoDrop
-   - Baseline Installation:
+   - **Baselines**: Tetragon, Tracee, eAudit, NoDrop
      - [Tetragon](https://tetragon.io/docs/getting-started/install-k8s/). We recommend using v0.24.1 for reproducibility, with the Helm chart on k8s.chart on k8s
      - [Tracee](https://github.com/aquasecurity/tracee). We recommend using v0.24.1 for reproducibility, with the Helm chart on k8s.
      - [eAudit](https://github.com/seclab-stonybrook/eaudit). eAudit supports both Ubuntu 22.04 and 24.04, but we recommend Ubuntu 22.04 for reproducibility.
      - [Nodrop](https://github.com/PKU-ASAL/NoDrop). Due to NoDrop's characteristics, it must be run on Ubuntu 18.04 with Kernel 4.15.0.
 
-4. Application-observed overhead
-   - Baselines: Centralized/Distributed-eBPF,
+4. Application-observed overhead (`Experiments/Exp.Application-observed_overhead`)
+   - **Baselines**: Centralized/Distributed-eBPF
+
+5. End-to-end latency including rule filtering (`Experiments/Exp.End-to-end_latency_including_rule`)
+   - **Baselines**: Centeralized/Distributed-eBPF
+
+6. Evaluation using real world conditions (`Experiments/Exp.Resource_mangement`)
+   - **Benchmark**: [Online-Boutique](https://github.com/googlecloudplatform/microservices-demo): a microservices demo application by Google.
+   - **Baselines**: CPU-only, Network-only, Non-gated CPU-Network policy

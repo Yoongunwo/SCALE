@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: exp2
+  template:
+    metadata:
+      labels:
+        app: exp2
+    spec:
+      containers:
+        - name: sys-gen
+          image: yoongunwo/sys_gen:1.1-manual
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: '100m'
+            limits:
+              cpu: '100m'
+        - name: proxy
+          image: yoongunwo/yoon_proxy:1.5-syscall-analysis-falco_style
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - ALL
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: RINGBUF_POW2
+              value: '20'
+          volumeMounts:
+            - name: syscallname
+              mountPath: /usr/include/x86_64-linux-gnu/asm
+            - name: sys
+              mountPath: /sys
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+            - name: modules
+              mountPath: /lib/modules
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+            - name: log
+              mountPath: /app/logs
+          resources:
+            requests:
+              cpu: '30m'
+            limits:
+              cpu: '30m'
+      volumes:
+        - name: syscallname
+          hostPath:
+            path: /usr/include/x86_64-linux-gnu/asm
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+        - name: modules
+          hostPath:
+            path: /lib/modules
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: log
+          hostPath:
+            path: /home/yoon/logs
+            type: DirectoryOrCreate
+      nodeSelector:
+        kubernetes.io/hostname: w-1
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exp2
+  template:
+    metadata:
+      labels:
+        app: exp2
+    spec:
+      containers:
+        - name: sys-gen
+          image: yoongunwo/sys_gen:1.1-manual
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: '100m'
+            limits:
+              cpu: '100m'
+        - name: proxy
+          image: yoongunwo/yoon_proxy:1.5-syscall-analysis-falco_style
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - ALL
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: RINGBUF_POW2
+              value: '20'
+          volumeMounts:
+            - name: syscallname
+              mountPath: /usr/include/x86_64-linux-gnu/asm
+            - name: sys
+              mountPath: /sys
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+            - name: modules
+              mountPath: /lib/modules
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+            - name: log
+              mountPath: /app/logs
+          resources:
+            requests:
+              cpu: '75m'
+            limits:
+              cpu: '75m'
+      volumes:
+        - name: syscallname
+          hostPath:
+            path: /usr/include/x86_64-linux-gnu/asm
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+        - name: modules
+          hostPath:
+            path: /lib/modules
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: log
+          hostPath:
+            path: /home/yoon/logs
+            type: DirectoryOrCreate
+      nodeSelector:
+        kubernetes.io/hostname: w-1

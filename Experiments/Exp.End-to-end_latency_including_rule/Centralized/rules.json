@@ -1,0 +1,29 @@
+{
+  "rules": [
+    {
+      "name": "execve_detect",
+      "syscall": 59,
+      "action": "alert"
+    },
+    {
+      "name": "openat_detect",
+      "syscall": 257,
+      "action": "alert"
+    },
+    {
+      "name": "write_detect",
+      "syscall": 1,
+      "action": "alert"
+    },
+    {
+      "name": "open_detect",
+      "syscall": 2,
+      "action": "alert"
+    },
+    {
+      "name": "close_detect",
+      "syscall": 3,
+      "action": "alert"
+    }
+  ]
+}

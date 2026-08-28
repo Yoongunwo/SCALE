@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: central-ebpf
+  labels:
+    app: central-ebpf
+spec:
+  hostPID: true
+  nodeSelector:
+    kubernetes.io/hostname: w-1
+
+  containers:
+    - name: proxy
+      image: yoongunwo/central_ebpf:1.0-analysis-falco_style
+      imagePullPolicy: Always
+      securityContext:
+        privileged: true
+        capabilities:
+          add: ['ALL']
+        seccompProfile:
+          type: Unconfined
+
+      volumeMounts:
+        - name: syscallname
+          mountPath: /usr/include/x86_64-linux-gnu/asm
+        - name: sys
+          mountPath: /sys
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        - name: modules
+          mountPath: /lib/modules
+        - name: bpf
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+        - name: log
+          mountPath: /app/logs
+      resources:
+        requests:
+          cpu: '300m'
+        limits:
+          cpu: '300m'
+
+  volumes:
+    - name: syscallname
+      hostPath:
+        path: /usr/include/x86_64-linux-gnu/asm
+    - name: sys
+      hostPath:
+        path: /sys
+    - name: debugfs
+      hostPath:
+        path: /sys/kernel/debug
+    - name: modules
+      hostPath:
+        path: /lib/modules
+    - name: bpf
+      hostPath:
+        path: /sys/fs/bpf
+        type: DirectoryOrCreate
+    - name: log
+      hostPath:
+        path: /home/yoon/logs
+        type: DirectoryOrCreate
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: sys-gen
+  template:
+    metadata:
+      labels:
+        app: sys-gen
+    spec:
+      containers:
+        - name: sys-gen
+          image: yoongunwo/sys_gen:1.1-manual
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: '100m'
+            limits:
+              cpu: '100m'
+      nodeSelector:
+        kubernetes.io/hostname: w-1
