@@ -34,6 +34,15 @@ In the kernel space, SCALE consists of Container-Specific Probes, Invocation Map
 
 - Our Docker images are not publicly released for anonymity during review; once the paper is accepted, we will also publish them.
 
+# Evaluation Environment
+
+All experiments were conducted in the following environment:
+
+- **CPU**: AMD Ryzen 5 7600 (6 cores, 12 threads)
+- **Hypervisor**: KVM/QEMU
+- **VM**: Ubuntu 22.04.5 LTS, kernel 5.15.0-161-generic
+- **Container orchestrator**: Kubernetes v1.28.15
+
 # Evaluation
 
 The evaluation results can be found in the paper (currently under review). The main evaluation is a performance comparison against existing system call collection tools, such as Tetragon and Tracee. The evaluation methodology is described below.
