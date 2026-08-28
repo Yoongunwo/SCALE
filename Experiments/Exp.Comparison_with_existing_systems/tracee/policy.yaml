@@ -3,13 +3,15 @@ kind: Policy
 metadata:
   name: sysgen-sysenter
 spec:
-  # scope 는 "어떤 대상을 볼 것인가", rules[].filters 는 "이벤트 데이터 조건"이다.
-  # 대상 한정자를 rules[].filters 에 두면 무시되고 global 로 동작한다.
+  # scope selects "which targets to observe", while rules[].filters expresses
+  # "conditions on the event data". A target qualifier placed in rules[].filters
+  # is ignored and the policy ends up acting globally.
   #
-  # podName= 은 이 버전의 scope 옵션이 아니다 (invalid scope option).
-  # 대신 comm=postmark 로 워크로드 프로세스를 직접 지정한다. 이렇게 하면
-  # 분모를 만드는 main_controller 의 eBPF 카운터(/proc/PID/comm == "postmark")와
-  # 정확히 같은 프로세스 집합을 보게 되어 드롭률의 분자/분모가 일치한다.
+  # podName= is not a valid scope option in this version (invalid scope option).
+  # Instead, comm=postmark pins the workload process directly. This way we observe
+  # exactly the same set of processes as the eBPF counter in main_controller that
+  # produces the denominator (/proc/PID/comm == "postmark"), so the numerator and
+  # denominator of the drop rate refer to the same population.
   scope:
     - container
     - comm=postmark

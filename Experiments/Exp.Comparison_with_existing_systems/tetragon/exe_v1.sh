@@ -2,36 +2,38 @@
 # =============================================================================
 # Tetragon baseline — collection & measurement
 #
-# 설계 원칙 (논문 Appendix "Tetragon" / "Measurement" 문단과 대응):
-#   1. Tetragon 네이티브 파일 export 로 종료한다.
-#      stdout/CRI 중계, gRPC(tetra getevents), export 사이드카를 쓰지 않는다.
-#   2. 소비자는 에이전트와 같은 노드에서 돈다.
-#      측정 경로에 Kubernetes API server 가 없다 (kubectl logs / exec 금지).
-#   3. 예산은 tetragon 컨테이너 하나에만 부여한다 (30m x N).
-#   4. 드롭의 분모는 워크로드가 발생시킨 syscall 수다. 도구 카운터는 교차 검증용.
+# Design principles (matching the "Tetragon" / "Measurement" paragraphs in the
+# appendix of the paper):
+#   1. Terminate at Tetragon's native file export.
+#      No stdout/CRI relay, no gRPC (tetra getevents), no export sidecar.
+#   2. The consumer runs on the same node as the agent.
+#      The Kubernetes API server is not on the measurement path (no kubectl logs / exec).
+#   3. The budget is given to the tetragon container only (30m x N).
+#   4. The denominator of the drop rate is the number of syscalls the workload issued.
+#      Tool-side counters are only for cross-checking.
 #
-# 실행 위치가 서브커맨드마다 다르다.
+# The place to run each subcommand differs.
 #
-#   [control-plane]  kubectl / helm 이 있는 곳
-#     ./exe_v1.sh setup  30    # 사이드카 제거, CPU 예산, ConfigMap, 롤아웃
-#     ./exe_v1.sh verify 30    # 클러스터 설정 검증
+#   [control-plane]  where kubectl / helm are available
+#     ./exe_v1.sh setup  30    # remove sidecars, CPU budget, ConfigMap, rollout
+#     ./exe_v1.sh verify 30    # verify the cluster configuration
 #
-#   [worker]  sys-gen 과 tetragon 이 실제로 도는 노드 (kubectl 불필요)
-#     ./exe_v1.sh check  30    # 로그 파일 상태 / 이벤트 타입 분포 확인
-#     ./exe_v1.sh start  30    # 수집 시작 (백그라운드)
-#     ...워크로드 실행, 발생 syscall 수 기록...
-#     ./exe_v1.sh stop   30    # 수집 종료 + 집계
+#   [worker]  the node where sys-gen and tetragon actually run (kubectl not needed)
+#     ./exe_v1.sh check  30    # log file status / event type distribution
+#     ./exe_v1.sh start  30    # start collection (in the background)
+#     ...run the workload, record the number of syscalls issued...
+#     ./exe_v1.sh stop   30    # stop collection + aggregate
 # =============================================================================
 set -euo pipefail
 
-N="${2:-30}"                          # application container 수
-RB_TOTAL=$(( N * 1048576 ))           # ring buffer 총량 = N MB (bytes)
-CPU="$(( N * 30 ))m"                  # CPU 예산 = 30m x N
+N="${2:-30}"                          # number of application containers
+RB_TOTAL=$(( N * 1048576 ))           # total ring buffer = N MB (bytes)
+CPU="$(( N * 30 ))m"                  # CPU budget = 30m x N
 NS=kube-system
 LOG=/var/run/cilium/tetragon/tetragon.log
-NSPACE="${NSPACE:-default}"          # 벤치마크 파드가 있는 namespace
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # collect.py / calculate.py 위치
-OUT="${OUT_DIR:-$SCRIPT_DIR/out}"                            # 측정 산출물 위치
+NSPACE="${NSPACE:-default}"          # namespace that holds the benchmark pods
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # location of collect.py / calculate.py
+OUT="${OUT_DIR:-$SCRIPT_DIR/out}"                            # where measurement artifacts are written
 METRICS_PORT="${METRICS_PORT:-2112}"
 
 mkdir -p "$OUT"
@@ -42,7 +44,7 @@ log() { echo "[*] $*" >&2; }
 have() { command -v "$1" >/dev/null 2>&1; }
 need_cluster() {
   have kubectl && have helm && return 0
-  echo "[!] 이 노드에는 kubectl/helm 이 없다. '$1' 은 control-plane 에서 실행할 것." >&2
+  echo "[!] This node has no kubectl/helm. Run '$1' on the control-plane." >&2
   exit 1
 }
 
@@ -52,51 +54,57 @@ tetra_pod() {
 }
 
 # -----------------------------------------------------------------------------
-# setup : 파일 export / rate limit 해제 / 버퍼 총량 / 사이드카 제거 / CPU 예산
+# setup : file export / lift rate limit / buffer total / drop sidecar / CPU budget
 # -----------------------------------------------------------------------------
 cmd_setup() {
   need_cluster setup
   log "N=$N  rb-size-total=${RB_TOTAL}B ($((RB_TOTAL/1048576)) MB)  cpu=${CPU}"
 
-  # 대상 파드가 이 노드에 없으면 여기서 아무것도 관측되지 않는다.
-  # Tetragon 은 DaemonSet 이라 각 노드의 에이전트가 자기 노드 syscall 만 본다.
+  # If no target pod runs on this node, nothing is observed here.
+  # Tetragon is a DaemonSet, so each node's agent sees only its own node's syscalls.
   local target_node
   target_node=$(kubectl get pods -n "$NSPACE" -l app=sys-gen \
     -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
   if [[ -n "$target_node" ]]; then
-    log "수집 대상 노드: ${target_node}  ->  start/stop 은 거기서 실행할 것"
+    log "collection target node: ${target_node}  ->  run start/stop there"
   else
-    echo "[!] label app=sys-gen 인 파드를 찾지 못했다 (ns=$NSPACE)." >&2
+    echo "[!] no pod with label app=sys-gen was found (ns=$NSPACE)." >&2
   fi
 
-  # (1) export 사이드카 제거 + 예산은 tetragon 컨테이너에만.
-  #     hubble-export-stdout 은 export 파일을 tail 해서 stdout 으로 되뿜는 중계기일 뿐이므로,
-  #     끄더라도 수집되는 이벤트는 동일하다.
-  #     차트의 해당 키는 export.mode 이고 "" 가 비활성화다 ('"stdout". "" to disable.').
-  #     export.stdout.enabled 같은 존재하지 않는 키는 helm 이 오류 없이 무시하므로 주의.
+  # (1) Drop the export sidecar and give the budget to the tetragon container only.
+  #     hubble-export-stdout is only a relay that tails the export file and echoes it back
+  #     to stdout, so disabling it does not change which events are collected.
+  #     The chart key is export.mode, and "" disables it ('"stdout". "" to disable.').
+  #     Beware: a non-existent key such as export.stdout.enabled is silently ignored by helm.
   helm upgrade tetragon cilium/tetragon -n "$NS" --reuse-values \
     --set export.mode="" \
     --set tetragon.resources.requests.cpu="$CPU" \
     --set tetragon.resources.limits.cpu="$CPU"
 
-  # (2) ConfigMap 은 반드시 helm upgrade **뒤에** 고친다.
-  #     helm 3 의 3-way merge 는 차트 템플릿에 존재하는 키(export-allowlist 등)를
-  #     템플릿 기본값으로 되돌린다. 순서가 반대면 여기서 넣은 값이 지워진다.
+  # (2) The ConfigMap must be patched **after** helm upgrade.
+  #     Helm 3's 3-way merge resets keys that exist in the chart template
+  #     (export-allowlist and the like) back to their template defaults, so in the
+  #     reverse order the values set here would be wiped out.
   #
-  #     export-allowlist: base sensor 의 노드 전역 process_exec/process_exit 을 배제하고
-  #     TracingPolicy 가 만드는 tracepoint 이벤트만 파일에 남긴다.
-  #     주의: 이 필터는 유저스페이스 export 단계다. 걸러진 이벤트도 이미 링버퍼를
-  #     건너온 뒤이므로, 커널->유저스페이스 구간의 비용과 버퍼 점유는 그대로 발생한다.
-  #     export-file-max-size-mb: 기본 10MB 마다 로테이션한다. 부하가 크면 초당 여러 번
-  #     갈아치우고, 그때마다 tail 이 이벤트를 놓쳐 delivered 가 심하게 과소집계된다.
-  #     사실상 로테이션이 일어나지 않도록 크게 잡는다.
-  #     field-filters: export 되는 필드를 최소화한다 (pid / binary / args).
-  #     기본 페이로드는 pod·parent 블록 때문에 이벤트당 ~2,470 B 인데, 이 필터를 켜면
-  #     ~343 B 로 줄어 직렬화 비용이 크게 감소한다. 즉 baseline 에 유리한 방향이다.
-  #     반드시 명시적으로 켜거나 끄고, 그 상태를 결과와 함께 기록할 것.
-  #     (helm upgrade 가 차트 템플릿 키를 기본값으로 되돌리므로 여기서 매번 다시 쓴다.)
-  #     rb-queue-size: 유저스페이스 내부 채널 크기(이벤트 수, 기본 65535).
-  #     큐가 구속 조건이 되지 않도록 크게 잡아, 유실이 예산 배정한 자원에서 나게 한다.
+  #     export-allowlist: excludes the base sensor's node-wide process_exec/process_exit
+  #     so that only the tracepoint events produced by the TracingPolicy reach the file.
+  #     Note that this filter acts at the userspace export stage: filtered-out events have
+  #     already crossed the ring buffer, so the kernel->userspace cost and the buffer
+  #     occupancy are incurred all the same.
+  #     export-file-max-size-mb: by default the file rotates every 10MB. Under load it is
+  #     rotated several times per second, and tail misses events at each rotation, which
+  #     badly undercounts delivered. Set it large enough that rotation effectively never
+  #     happens.
+  #     field-filters: minimizes the exported fields (pid / binary / args).
+  #     The default payload is ~2,470 B per event because of the pod and parent blocks;
+  #     with this filter it shrinks to ~343 B, greatly reducing serialization cost -- that
+  #     is, it works in the baseline's favour. Always turn it on or off explicitly and
+  #     record that state together with the results.
+  #     (helm upgrade resets chart template keys to their defaults, so it is rewritten here
+  #     every time.)
+  #     rb-queue-size: size of the internal userspace channel (in events, default 65535).
+  #     Keep it large so the queue is not the binding constraint and losses come from the
+  #     resources we budgeted.
   ALLOW="{\\\"event_set\\\":[\\\"PROCESS_TRACEPOINT\\\"],\\\"namespace\\\":[\\\"${NSPACE}\\\"]}"
   if [[ "${FIELD_FILTER:-1}" == "1" ]]; then
     FF="{\\\"event_set\\\":[\\\"PROCESS_TRACEPOINT\\\"],\\\"fields\\\":\\\"process.pid,process.binary,args\\\",\\\"action\\\":\\\"INCLUDE\\\"}"
@@ -115,21 +123,21 @@ cmd_setup() {
     \"rb-size-total\":\"${RB_TOTAL}\"
   }}"
 
-  # (3) ConfigMap 변경은 재시작해야 반영된다.
+  # (3) ConfigMap changes take effect only after a restart.
   kubectl -n "$NS" rollout restart ds/tetragon
   kubectl -n "$NS" rollout status  ds/tetragon --timeout=180s
   cmd_verify
 }
 
 # -----------------------------------------------------------------------------
-# verify : 설정이 실제로 적용됐는지 확인 (측정 전 반드시 통과할 것)
+# verify : confirm the settings actually took effect (must pass before measuring)
 # -----------------------------------------------------------------------------
 cmd_verify() {
   need_cluster verify
   local pod; pod="$(tetra_pod)"
-  [[ -n "$pod" ]] || { echo "[!] 이 노드에 tetragon pod 없음" >&2; exit 1; }
+  [[ -n "$pod" ]] || { echo "[!] no tetragon pod on this node" >&2; exit 1; }
 
-  echo "--- containers (tetragon 하나만 나와야 함) ---"
+  echo "--- containers (only tetragon should be listed) ---"
   kubectl -n "$NS" get "$pod" -o jsonpath='{range .spec.containers[*]}{.name}{"\t"}{.resources.limits.cpu}{"\n"}{end}'
 
   echo "--- effective config ---"
@@ -139,41 +147,41 @@ cmd_verify() {
   echo "--- tracing policy (CR) ---"
   kubectl get tracingpolicynamespaced -n "$NSPACE" 2>/dev/null || true
 
-  # CR 이 존재하는 것과 센서가 커널에 로드된 것은 다르다.
-  # 로드 실패 시 CR 은 그대로 있으면서 이벤트만 안 나온다.
+  # A CR existing is not the same as the sensor being loaded into the kernel.
+  # When loading fails the CR stays in place while no events are produced.
   echo "--- loaded sensors (tetra status) ---"
   kubectl exec -n "$NS" "$pod" -c tetragon -- tetra status 2>/dev/null \
-    | grep -iE 'policy|sensor|tracingpolicy|enabled|error' || echo "  (tetra status 조회 실패)"
+    | grep -iE 'policy|sensor|tracingpolicy|enabled|error' || echo "  (failed to query tetra status)"
 
-  # podSelector 가 매칭할 대상이 실제로 도는지.
+  # Check that the targets matched by podSelector are actually running.
   echo "--- target pods (label app=sys-gen, ns=$NSPACE) ---"
   kubectl get pods -n "$NSPACE" -l app=sys-gen \
     -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase 2>/dev/null \
-    || echo "  (조회 실패)"
+    || echo "  (query failed)"
 
   echo
-  echo "[i] 로그 파일 확인은 대상 노드에서: ./exe_v1.sh check $N"
+  echo "[i] Check the log file on the target node: ./exe_v1.sh check $N"
 }
 
 # -----------------------------------------------------------------------------
-# reset : 측정 전 로그 초기화 (대상 노드에서)
-#   본 파일은 truncate 만 한다. rm 으로 지우면 exporter 가 unlink 된 inode 에
-#   계속 쓰게 되어 경로가 재생성되지 않고, tetragon 재시작 전까지 로그가 사라진다.
-#   로테이션된 백업(.log.1 등)만 rm 한다.
+# reset : clear the log before measuring (on the target node)
+#   This only truncates. Removing the file with rm makes the exporter keep writing to
+#   the unlinked inode, so the path is never recreated and the log stays gone until
+#   tetragon is restarted. Only rotated backups (.log.1 and so on) are removed.
 # -----------------------------------------------------------------------------
 cmd_reset() {
   if ! sudo test -e "$LOG"; then
-    echo "[!] $LOG 가 없다. rm 으로 지웠다면 tetragon 을 재시작해야 재생성된다:" >&2
+    echo "[!] $LOG is missing. If it was deleted with rm, tetragon must be restarted to recreate it:" >&2
     echo "    [control-plane] kubectl -n $NS delete pod -l app.kubernetes.io/name=tetragon --field-selector spec.nodeName=$(hostname)" >&2
     exit 1
   fi
   sudo truncate -s 0 "$LOG"
   sudo rm -f "$LOG".*
-  log "초기화 완료: $(sudo ls -l "$LOG" | awk '{print $5}')B, 백업 $(sudo ls "$LOG".* 2>/dev/null | wc -l)개"
+  log "reset done: $(sudo ls -l "$LOG" | awk '{print $5}')B, $(sudo ls "$LOG".* 2>/dev/null | wc -l) backups"
 }
 
 # -----------------------------------------------------------------------------
-# check : 대상 노드에서 로그 상태 확인 (kubectl 불필요)
+# check : inspect the log status on the target node (kubectl not needed)
 # -----------------------------------------------------------------------------
 cmd_check() {
   echo "--- host ---"
@@ -183,40 +191,42 @@ cmd_check() {
   if sudo test -e "$LOG"; then
     sudo ls -l "$LOG"
   elif sudo test -d "$(dirname "$LOG")"; then
-    # exporter 는 첫 이벤트를 쓸 때 파일을 만든다. allowlist 로 걸러진 상태에서
-    # 워크로드가 놀고 있으면 매칭되는 이벤트가 0 이라 파일이 아직 없을 수 있다.
-    echo "  [i] $LOG 아직 없음. 디렉터리는 존재:"
+    # The exporter creates the file when it writes the first event. With the allowlist
+    # in place and the workload idle, no event matches, so the file may not exist yet.
+    echo "  [i] $LOG does not exist yet. The directory is there:"
     sudo ls -la "$(dirname "$LOG")"
-    echo "  → 워크로드를 한 번 돌리면 생성된다. 그래도 안 생기면 export-filename/allowlist 확인."
+    echo "  -> It appears once the workload runs. If it still does not, check export-filename/allowlist."
   else
-    echo "[!] $(dirname "$LOG") 자체가 없음 — 이 노드에 tetragon 이 안 떠 있다."
+    echo "[!] $(dirname "$LOG") itself is missing - tetragon is not running on this node."
     return 1
   fi
 
-  # base sensor 의 노드 전역 이벤트가 섞여 들어오는지 확인.
-  # process_tracepoint 외의 타입이 보이면 export-allowlist 가 안 먹은 것이다.
-  echo "--- 최근 200줄 이벤트 타입 분포 (process_tracepoint 만 나와야 함) ---"
-  sudo tail -n 200 "$LOG" 2>/dev/null     | grep -oE '"(process_exec|process_exit|process_kprobe|process_tracepoint)"'     | sort | uniq -c || echo "  (로그 비어 있음)"
+  # Check whether the base sensor's node-wide events are leaking in.
+  # Any type other than process_tracepoint means export-allowlist did not take effect.
+  echo "--- event type distribution over the last 200 lines (only process_tracepoint expected) ---"
+  sudo tail -n 200 "$LOG" 2>/dev/null     | grep -oE '"(process_exec|process_exit|process_kprobe|process_tracepoint)"'     | sort | uniq -c || echo "  (log is empty)"
 
-  # 정책이 의도한 파드만 잡고 있는지 (tracepoint 이벤트의 파드 이름 분포)
-  echo "--- process_tracepoint 의 파드 분포 (sys-gen 만 나와야 함) ---"
-  sudo grep '"process_tracepoint"' "$LOG" 2>/dev/null | tail -n 500     | grep -oE '"name":"[^"]*"' | sort | uniq -c | head || echo "  (tracepoint 이벤트 없음)"
+  # Check that the policy captures only the intended pods (pod name distribution of the
+  # tracepoint events).
+  echo "--- pod distribution of process_tracepoint (only sys-gen expected) ---"
+  sudo grep '"process_tracepoint"' "$LOG" 2>/dev/null | tail -n 500     | grep -oE '"name":"[^"]*"' | sort | uniq -c | head || echo "  (no tracepoint events)"
 
-  # 로테이션이 돌면 tail 이 이벤트를 놓친다. 백업 파일이 보이면 설정이 안 먹은 것.
-  echo "--- 로테이션 흔적 (백업 파일이 없어야 함) ---"
+  # Rotation makes tail miss events, so any backup file means the setting did not apply.
+  echo "--- rotation traces (there should be no backup files) ---"
   sudo ls -l "$(dirname "$LOG")" | grep -v "^total" || true
 
   echo "--- metrics endpoint ---"
   curl -s -o /dev/null -w "  localhost:${METRICS_PORT}/metrics -> HTTP %{http_code}
-"     "localhost:${METRICS_PORT}/metrics" || echo "  (접근 실패)"
+"     "localhost:${METRICS_PORT}/metrics" || echo "  (access failed)"
 }
 
-# 파이프라인 각 단계의 카운터만 "이름 값" 으로 남긴다.
-# HELP/TYPE 주석과 라벨 붙은 시계열(tetragon_events_total{...})은 제외한다.
-#   received  : 커널에서 실제로 받은 총량   <- 발생량과의 차이가 커널 측 손실
-#   lost      : perf ring buffer 유실
-#   errors    : 링버퍼 읽기 오류
-#   queue_*   : 유저스페이스 내부 채널
+# Keep only the counters of each pipeline stage, as "name value" pairs.
+# HELP/TYPE comments and labelled time series (tetragon_events_total{...}) are excluded.
+#   received  : total actually received from the kernel; the gap against the issued
+#               count is the kernel-side loss
+#   lost      : perf ring buffer loss
+#   errors    : ring buffer read errors
+#   queue_*   : the internal userspace channel
 METRIC_KEYS='tetragon_observer_ringbuf_events_received_total|tetragon_observer_ringbuf_events_lost_total|tetragon_observer_ringbuf_errors_total|tetragon_observer_ringbuf_queue_events_received_total|tetragon_observer_ringbuf_queue_events_lost_total|tetragon_notify_overflowed_events_total|tetragon_export_ratelimit_events_dropped_total|tetragon_events_exported_total'
 
 snapshot_metrics() {
@@ -224,52 +234,52 @@ snapshot_metrics() {
     | grep -vE '^#' \
     | grep -E "^(${METRIC_KEYS}) " \
     | sort > "$1" \
-    || echo "[!] metrics 스크레이프 실패 (포트 ${METRICS_PORT})" >&2
+    || echo "[!] metrics scrape failed (port ${METRICS_PORT})" >&2
 }
 
-# -----------------------------------------------------------------------------
-# start : 노드 로컬 파일을 노드에서 tail. kubectl / jq / per-event fork 없음.
-#   collect.py 가 수신 시각(recv_ns)을 찍는다. 노드에서 돌므로 이벤트의 time 필드와
-#   같은 시계 영역이 되어, 지연 = recv_ns - event.time 이 성립한다.
+# start : tail the node-local file on the node itself. No kubectl, no jq, no per-event fork.
+#   collect.py stamps the receive time (recv_ns). Since it runs on the node it shares the
+#   clock domain of the event's time field, so latency = recv_ns - event.time holds.
 # -----------------------------------------------------------------------------
 cmd_start() {
   sudo test -d "$(dirname "$LOG")" || {
-    echo "[!] $(dirname "$LOG") 없음 — 이 노드에 tetragon 이 안 떠 있다." >&2; exit 1; }
-  sudo test -e "$LOG" || log "[i] $LOG 아직 없음 — tail -F 가 생성되는 대로 따라붙는다."
-  [[ -f "$SCRIPT_DIR/collect.py" ]] || { echo "[!] $SCRIPT_DIR/collect.py 없음" >&2; exit 1; }
+    echo "[!] $(dirname "$LOG") is missing - tetragon is not running on this node." >&2; exit 1; }
+  sudo test -e "$LOG" || log "[i] $LOG does not exist yet - tail -F attaches as soon as it is created."
+  [[ -f "$SCRIPT_DIR/collect.py" ]] || { echo "[!] $SCRIPT_DIR/collect.py not found" >&2; exit 1; }
 
   snapshot_metrics "$OUT/metrics_before.txt"
   : > "$EVENTS"
 
-  # -n0 : 기존 내용 무시하고 지금부터. stdbuf 로 파이프 버퍼링 제거.
+  # -n0 : ignore existing content and start from now. stdbuf removes pipe buffering.
   ( sudo tail -F -n0 "$LOG" | EVENTS_OUT="$EVENTS" stdbuf -oL python3 -u "$SCRIPT_DIR/collect.py" ) &
   echo $! > "$PIDFILE"
   log "collector started (pid $(cat "$PIDFILE")) -> $EVENTS"
-  log "이제 워크로드를 실행하고, 발생시킨 syscall 수를 기록해 두십시오."
+  log "Now run the workload and record the number of syscalls it issues."
 }
 
 # -----------------------------------------------------------------------------
-# stop : 수집 종료 + 집계
+# stop : end collection + aggregate
 # -----------------------------------------------------------------------------
-# 파이프라인이 비워질 때까지 대기한다.
-#   에이전트 지연이 수 초 단위이므로, 워크로드 종료 직후 stop 하면 아직 밀려 있는
-#   이벤트가 잘려나가 delivered 가 과소 집계되고 유실률이 부풀려진다.
-#   export 로그 크기가 STABLE_SEC 동안 변하지 않으면 드레인 완료로 본다.
+# Wait until the pipeline has drained.
+#   Agent latency is on the order of seconds, so stopping right after the workload ends
+#   truncates events that are still in flight, undercounting delivered and inflating the
+#   loss rate. The drain is considered complete when the export log size does not change
+#   for STABLE_SEC seconds.
 drain_wait() {
   local stable=0 last=-1 cur elapsed=0
   local STABLE_SEC="${DRAIN_STABLE_SEC:-10}" MAX="${DRAIN_MAX_SEC:-180}"
-  log "드레인 대기 (로그 크기가 ${STABLE_SEC}s 동안 불변이면 종료, 최대 ${MAX}s)"
+  log "waiting for drain (finishes when the log size is unchanged for ${STABLE_SEC}s, max ${MAX}s)"
   while (( elapsed < MAX )); do
     cur=$(sudo stat -c %s "$LOG" 2>/dev/null || echo 0)
     if [[ "$cur" == "$last" ]]; then
       stable=$((stable+1))
-      (( stable >= STABLE_SEC )) && { log "드레인 완료 (${elapsed}s, ${cur}B)"; return 0; }
+      (( stable >= STABLE_SEC )) && { log "drain complete (${elapsed}s, ${cur}B)"; return 0; }
     else
       stable=0
     fi
     last="$cur"; sleep 1; elapsed=$((elapsed+1))
   done
-  echo "[!] ${MAX}s 안에 안정되지 않음 — 파이프라인이 여전히 밀려 있다." >&2
+  echo "[!] not stable within ${MAX}s - the pipeline is still backed up." >&2
 }
 
 cmd_stop() {
@@ -283,16 +293,16 @@ cmd_stop() {
   sleep 1
   snapshot_metrics "$OUT/metrics_after.txt"
 
-  # process_tracepoint 만 센다. base sensor 의 process_exec/exit 는 정책과 무관하게
-  # 노드 전역으로 발생하므로 syscall 수집량에 포함하면 안 된다.
+  # Count process_tracepoint only. The base sensor's process_exec/exit occur node-wide,
+  # independently of the policy, so they must not be counted as collected syscalls.
   local delivered raw raw_all base_ev
   delivered=$(grep -c '"process_tracepoint"' "$EVENTS" || true)
   raw=$(sudo grep -c '"process_tracepoint"' "$LOG" || true)
   raw_all=$(sudo wc -l "$LOG" | awk '{print $1}')
   base_ev=$(sudo grep -cE '"(process_exec|process_exit)"' "$LOG" || true)
 
-  # 로테이션된 백업까지 합산. 백업이 존재하면 tail 은 그 구간을 놓쳤다는 뜻이므로,
-  # delivered(tail) 은 신뢰할 수 없고 파일 합산값을 써야 한다.
+  # Include the rotated backups. If backups exist, tail missed those stretches, so
+  # delivered(tail) cannot be trusted and the file-based total must be used instead.
   local nrot rot_total
   nrot=$(sudo ls "$LOG"* 2>/dev/null | grep -vc "^${LOG}$" || true)
   rot_total=$(sudo cat "$LOG"* 2>/dev/null | grep -c '"process_tracepoint"' || true)
@@ -303,47 +313,47 @@ cmd_stop() {
   [[ "$raw_all" -gt 0 ]] && bpe=$(( $(sudo stat -c %s "$LOG") / raw_all ))
   echo "  buffer (total)      : $((RB_TOTAL/1048576)) MB"
   echo "  rb-queue-size       : ${RB_QUEUE:-1000000}"
-  echo "  field-filter        : ${FIELD_FILTER:-1}  (1=최소 페이로드)"
-  echo "  bytes / event       : ${bpe}  [회차 간 이 값이 다르면 설정이 다른 것]"
+  echo "  field-filter        : ${FIELD_FILTER:-1}  (1=minimal payload)"
+  echo "  bytes / event       : ${bpe}  [if this differs across runs, the configuration differs]"
   echo "  cpu budget          : $CPU"
   echo "  delivered (tail)    : $delivered   [process_tracepoint only]"
   echo "  export log lines    : $raw          [process_tracepoint only]"
   echo "  export log (all)    : $raw_all"
   echo "  rotated backups     : $nrot"
-  echo "  all files combined  : $rot_total  [process_tracepoint, 로테이션 포함]"
+  echo "  all files combined  : $rot_total  [process_tracepoint, rotations included]"
   if [[ "${nrot:-0}" -gt 0 ]]; then
     echo
-    echo "  [!] 로테이션이 발생했다. tail 은 로테이션 구간을 놓치므로"
-    echo "      delivered(tail) 대신 'all files combined' 를 쓸 것."
-    echo "      지연 통계는 표본이 끊겨 있어 신뢰할 수 없다."
+    echo "  [!] Rotation occurred. tail misses the rotated stretches, so use"
+    echo "      'all files combined' instead of delivered(tail)."
+    echo "      The latency statistics are unreliable because the sample is broken up."
   fi
-  echo "  base sensor events  : $base_ev      [exec/exit, 노드 전역 — 수집량에서 제외]"
+  echo "  base sensor events  : $base_ev      [exec/exit, node-wide - excluded from the collected count]"
   echo
-  echo "  drop rate = 1 - delivered / <워크로드가 발생시킨 syscall 수>"
-  echo "  (분모는 sys_generator 의 발생량. 도구 카운터가 아님.)"
+  echo "  drop rate = 1 - delivered / <number of syscalls the workload issued>"
+  echo "  (the denominator is what sys_generator issued, not a tool counter.)"
   echo
   echo "--- kernel/queue loss (before -> after) ---"
   paste <(sort "$OUT/metrics_before.txt") <(sort "$OUT/metrics_after.txt") 2>/dev/null \
     | grep -E 'lost|drop' || true
   echo
-  # A && B || C 로 쓰면 B(calculate.py) 가 정상적으로 0 아닌 코드로 끝났을 때도
-  # C 가 실행되어 "파일 없음" 이라는 거짓 메시지가 찍힌다. if/else 로 분리한다.
+  # Written as A && B || C, C would also run when B (calculate.py) legitimately exits
+  # non-zero, printing a bogus "file not found" message. Split into if/else instead.
   if [[ -f "$SCRIPT_DIR/calculate.py" ]]; then
     EVENTS_OUT="$EVENTS" python3 "$SCRIPT_DIR/calculate.py" || true
   else
-    echo "[i] $SCRIPT_DIR/calculate.py 없음 — 지연 집계 생략."
+    echo "[i] $SCRIPT_DIR/calculate.py not found - skipping latency aggregation."
   fi
 }
 
 # -----------------------------------------------------------------------------
-# drop-sidecar : helm 키를 못 찾았을 때의 임시 조치.
-#   DaemonSet 에서 export-stdout 컨테이너를 직접 제거한다.
-#   주의: 다음 helm upgrade 때 되살아난다. 측정 직전에 실행할 것.
+# drop-sidecar : fallback for when the helm key cannot be found.
+#   Removes the export-stdout container directly from the DaemonSet.
+#   Note: it comes back on the next helm upgrade, so run this right before measuring.
 # -----------------------------------------------------------------------------
 cmd_drop_sidecar() {
   local idx
   idx=$(kubectl -n "$NS" get ds/tetragon -o json         | python3 -c 'import json,sys;c=[x["name"] for x in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"]];print(c.index("export-stdout") if "export-stdout" in c else -1)')
-  if [[ "$idx" -lt 0 ]]; then echo "[i] export-stdout 없음"; return 0; fi
+  if [[ "$idx" -lt 0 ]]; then echo "[i] no export-stdout"; return 0; fi
   kubectl -n "$NS" patch ds/tetragon --type json     -p "[{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/${idx}\"}]"
   kubectl -n "$NS" rollout status ds/tetragon --timeout=180s
   cmd_verify

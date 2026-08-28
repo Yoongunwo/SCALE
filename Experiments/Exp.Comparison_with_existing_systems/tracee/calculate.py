@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """
-Tracee NDJSON 집계: recv_ns(수집기 수신 시각) - event.timestamp(커널 이벤트 시각)
+Tracee NDJSON aggregation: recv_ns (collector receive time) - event.timestamp
+(kernel event time)
 
-collect.py 가 만든 파일을 읽는다. 한 줄 형식:
+Reads the file produced by collect.py. One line has the form:
     {"recv_ns": <int ns>, "event": { ...tracee json... }}
 
-Tracee 의 timestamp 단위/기준은 버전과 출력 옵션에 따라 다르다.
-  - 기본: epoch nanoseconds
-  - 'relative-time' 출력 옵션: boot 기준 nanoseconds
-exe_v1.sh check 로 한 줄 덤프해 확인한 뒤, boot 기준이면 TRACEE_TS=relative 로 실행한다.
-그 경우 /proc/uptime 과 현재 epoch 로 boot 시각을 구해 보정한다.
+The unit and reference point of Tracee's timestamp depend on the version and the
+output options:
+  - default: epoch nanoseconds
+  - with the 'relative-time' output option: nanoseconds since boot
+Dump one line with 'exe_v1.sh check' to confirm, and if it is boot-relative run
+with TRACEE_TS=relative. In that case the boot time is derived from /proc/uptime
+and the current epoch time, and used as the correction.
 
-주의: 두 시각의 차이에서 중앙값 오프셋을 빼는 식의 '보정'은 하지 않는다.
-      그렇게 하면 p50 이 구조적으로 0 이 되어 지연 신호가 사라진다.
-      수집기를 노드에서 돌리면 보정 자체가 불필요하다.
+Note: we deliberately do NOT 'correct' the difference by subtracting its median
+      offset. Doing so drives p50 structurally to 0 and erases the latency
+      signal. Running the collector on the node removes the need for any such
+      correction in the first place.
 """
 import json, os, sys, time
 
@@ -25,9 +29,9 @@ p = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "syscalls_events.ndjson"),
 )
 if not os.path.exists(p):
-    sys.exit("[!] %s 없음 — start 로 수집한 뒤 실행할 것." % p)
+    sys.exit("[!] %s not found - collect with start before running this." % p)
 if os.path.getsize(p) == 0:
-    sys.exit("[!] %s 가 비어 있음 — 워크로드가 syscall 을 만들지 않았을 가능성." % p)
+    sys.exit("[!] %s is empty - the workload may not have issued any syscalls." % p)
 
 boot_ns = 0
 if TS_MODE == "relative":
@@ -44,8 +48,8 @@ def pct(a, q):
 
 
 lat_ms = []
-tps_recv = {}      # 수신 시각 기준 초당 건수
-tps_kern = {}      # 커널 시각 기준 초당 건수
+tps_recv = {}      # events per second, by receive time
+tps_kern = {}      # events per second, by kernel time
 n = 0
 recv_min = recv_max = None
 kern_min = kern_max = None
@@ -88,7 +92,7 @@ with open(p, encoding="utf-8", errors="ignore") as f:
         tps_kern[sk] = tps_kern.get(sk, 0) + 1
 
 if n == 0:
-    sys.exit("[!] eventName=%s 인 이벤트가 없음." % EVENT)
+    sys.exit("[!] no events with eventName=%s." % EVENT)
 
 recv_win = (recv_max - recv_min) / 1e9
 kern_win = (kern_max - kern_min) / 1e9
@@ -99,13 +103,13 @@ tv = sorted(tps_recv.values())
 print("Events: %d   (skipped %d)" % (n, skipped))
 print("Recv window   : %.3fs   -> avg %.2f eps" % (recv_win, n / recv_win if recv_win > 0 else 0))
 print("Kernel window : %.3fs   -> avg %.2f eps" % (kern_win, n / kern_win if kern_win > 0 else 0))
-print("  [i] 커널 창이 워크로드 실행 시간, 수신 창이 그보다 길면 그 차이가 적체다.")
+print("  [i] The kernel window is the workload runtime; if the receive window is longer, the difference is backlog.")
 
 neg = sum(1 for x in lat_ms if x < 0)
 print("Latency ms: mean=%.3f p50=%.3f p90=%.3f p99=%.3f max=%.3f  (negative=%d)" % (
     sum(lat_ms) / len(lat_ms), pct(lat_ms, .5), pct(lat_ms, .9), pct(lat_ms, .99), lat_ms[-1], neg))
 if neg:
-    print("  [!] 음수 지연이 있다 -> timestamp 기준이 틀렸을 수 있다. TRACEE_TS 확인.")
+    print("  [!] negative latencies -> the timestamp reference may be wrong. Check TRACEE_TS.")
 
 print("Per-second TPS (recv) p50/p90/p99/peak: %d / %d / %d / %d" % (
     pct(tv, .5), pct(tv, .9), pct(tv, .99), tv[-1]))
@@ -113,7 +117,7 @@ avg = n / recv_win if recv_win > 0 else 0
 p50 = pct(tv, .5)
 if p50:
     d = 100.0 * abs(avg - p50) / p50
-    print("  avg vs p50 차이: %.1f%%   %s" % (d, "OK" if d <= 5 else "[!] 5%% 초과 — 창에 유휴가 섞였을 수 있다"))
+    print("  avg vs p50 difference: %.1f%%   %s" % (d, "OK" if d <= 5 else "[!] over 5%% - the window may include idle time"))
 
 first = sorted(tps_recv.items())[:5]
 print("TPS samples (first 5 secs):")

@@ -5,15 +5,15 @@ helm upgrade tetragon cilium/tetragon -n kube-system --reuse-values \
 k apply -f policy.yaml
 
 # master node
-./exe_v1.sh setup 1     # 사이드카 제거, CPU 예산, ConfigMap, 롤아웃
-./exe_v1.sh verify 1    # 클러스터 설정 검증
+./exe_v1.sh setup 1     # remove sidecars, CPU budget, ConfigMap, rollout
+./exe_v1.sh verify 1    # verify the cluster configuration
 
 # worker node
-./exe_v1.sh check 1     # 로그 상태 / 이벤트 타입 분포 / 파드 분포
+./exe_v1.sh check 1     # log status / event type distribution / pod distribution
 sudo truncate -s 0 /var/run/cilium/tetragon/tetragon.log
 ./exe_v1.sh reset 30 && ./exe_v1.sh start 30
 
-#   ... 워크로드 실행 ... in master node
+#   ... run the workload ... in master node
 ./postmark.sh default sys-gen sys-gen
 
 # worker node

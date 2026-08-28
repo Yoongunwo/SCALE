@@ -3,7 +3,7 @@
 #include <string.h>
 #include <jansson.h>  // Requires libjansson-dev
 
-#define SYSCALL_BITS 10  // syscall 번호 최대 1024까지 지원
+#define SYSCALL_BITS 10  // supports syscall numbers up to 1024
 
 void generate_bpf_probe(const char* name, int syscall_nr, FILE *out) {
     fprintf(out, "SEC(\"tracepoint/syscalls/sys_enter_%s\")\n", name);

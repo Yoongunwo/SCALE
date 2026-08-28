@@ -2,18 +2,18 @@ import json, os, sys, datetime as dt
 from pathlib import Path
 from statistics import mean
 
-# 입력 경로는 EVENTS_OUT 환경변수로 받는다 (exe_v1.sh 가 설정).
+# The input path comes from the EVENTS_OUT environment variable (set by exe_v1.sh).
 p = Path(os.environ.get(
     "EVENTS_OUT",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "syscalls_events.ndjson"),
 ))
 if not p.exists():
-    sys.exit(f"[!] {p} 없음 — start 로 수집한 뒤 실행할 것.")
+    sys.exit(f"[!] {p} not found - collect with start before running this.")
 if p.stat().st_size == 0:
-    sys.exit(f"[!] {p} 가 비어 있음 — 워크로드가 syscall 을 만들지 않았을 가능성.")
+    sys.exit(f"[!] {p} is empty - the workload may not have issued any syscalls.")
 
 tps = {}          # {sec: count}
-lat = []          # latency(ms) 샘플들
+lat = []          # latency samples (ms)
 n_total = 0
 recv_first = None
 recv_last  = None
@@ -25,7 +25,7 @@ def parse_evt_ts(s: str):
         return None
     if '.' in s:
         dtstr, frac = s.split('.', 1)
-        usec = int((frac + '000000')[:6])  # ns→µs 절삭
+        usec = int((frac + '000000')[:6])  # truncate ns -> us
     else:
         dtstr, usec = s, 0
     base = dt.datetime.strptime(dtstr, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc)
@@ -60,24 +60,24 @@ for line in p.open():
     if evt_ts is not None:
         lat.append((recv_dt - evt_ts).total_seconds() * 1000.0)
 
-# --- 출력 ---
-# 샘플 TPS 5초
+# --- output ---
+# TPS samples, first 5 seconds
 print("TPS samples (first 5 secs):")
 for i, (sec, c) in enumerate(sorted(tps.items())[:5]):
     print(dt.datetime.fromtimestamp(sec, tz=dt.timezone.utc).isoformat(), c)
 
-# 레이턴시 요약
+# latency summary
 if lat:
     print("Latency ms: mean=%.3f p50=%.3f p90=%.3f p99=%.3f max=%.3f"
           % (mean(lat), pct(lat,0.5), pct(lat,0.9), pct(lat,0.99), max(lat)))
 else:
     print("No latency samples.")
 
-# 처리량(throughput)
+# throughput
 if n_total and recv_first and recv_last:
     duration = (recv_last - recv_first).total_seconds()
-    duration = max(duration, 1e-9)  # 0분모 방지
-    avg_eps = n_total / duration    # 전체 평균 이벤트/초
+    duration = max(duration, 1e-9)  # avoid a zero denominator
+    avg_eps = n_total / duration    # overall average events/s
     tps_vals = list(tps.values())
     peak_tps = max(tps_vals) if tps_vals else 0
     peak_sec = max(tps, key=tps.get) if tps else None

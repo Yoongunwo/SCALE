@@ -41,8 +41,10 @@ The evaluation results can be found in the paper (currently under review). The m
 The `Evaluation` directory is organized as follows:
 
 1. Benchmarks used in our experiments
-   - Custom Benchmark
-   - Postmark Benchmark
+   - This project uses the following benchmarks. Since our environment is containerized, each benchmark must be built as a container image. The Dockerfiles for these benchmarks are located in the `Experiments/Benchmark` folder.
+   - Benchmarks
+     - Custom Benchmark
+     - Postmark Benchmark
 2. Performance comparison with existing system call collection mechanisms (Throughput, Drop, Latency)
    - 2.1 Centralized Pattern
      - Baselines: Auditd, Perf, Sysdig, eBPF
@@ -50,12 +52,13 @@ The `Evaluation` directory is organized as follows:
      - Baselines: Perf, ftrace, eBPF
 
 3. Performance comparison with existing systems (Throughput, Drop, Latency)
+   - Installation and experiment instructions for these baselines can be found in `Experiments/Exp.Comparison_with_existing_systems/README*.md`.
    - Baselines: Tetragon, Tracee, eAudit, NoDrop
    - Baseline Installation:
-     - [Tetragon](https://tetragon.io/docs/getting-started/install-k8s/). We recommend use v0.24.1 for reproducibilitiy and helm chart on k8s
-     - [Tracee](https://github.com/aquasecurity/tracee). We recommend use v1.6.0 for reproducibilitiy and helm chart on k8s
-     - [eAudit](https://github.com/seclab-stonybrook/eaudit). eAudit은 Ubuntu 22.04와 24.04를 지원하지만 재현성을 위해 22.04 추천드립니다.
-     - [Nodrop](https://github.com/PKU-ASAL/NoDrop). NoDrop의 특성상 Ubuntu 18.04 and Kernel 4.15.0에서 수행해야 합니다.
+     - [Tetragon](https://tetragon.io/docs/getting-started/install-k8s/). We recommend using v0.24.1 for reproducibility, with the Helm chart on k8s.chart on k8s
+     - [Tracee](https://github.com/aquasecurity/tracee). We recommend using v0.24.1 for reproducibility, with the Helm chart on k8s.
+     - [eAudit](https://github.com/seclab-stonybrook/eaudit). eAudit supports both Ubuntu 22.04 and 24.04, but we recommend Ubuntu 22.04 for reproducibility.
+     - [Nodrop](https://github.com/PKU-ASAL/NoDrop). Due to NoDrop's characteristics, it must be run on Ubuntu 18.04 with Kernel 4.15.0.
 
 4. Application-observed overhead
    - Baselines: Centralized/Distributed-eBPF,
