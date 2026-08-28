@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exp2
+  template:
+    metadata:
+      labels:
+        app: exp2
+    spec:
+      containers:
+        - name: sys-gen
+          image: # Custom Benchmark Image
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: '200m'
+            limits:
+              cpu: '200m'
+        - name: proxy
+          image: # SCALE Proxy Image
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: RINGBUF_POW2
+              value: '20'
+          volumeMounts:
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+          resources:
+            requests:
+              cpu: '100m'
+            limits:
+              cpu: '100m'
+      volumes:
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+      nodeSelector:
+        kubernetes.io/hostname: w-1

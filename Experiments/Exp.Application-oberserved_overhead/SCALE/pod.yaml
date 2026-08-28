@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exp2
+  template:
+    metadata:
+      labels:
+        app: exp2
+    spec:
+      containers:
+        - name: sys-gen
+          image: # Custom Benchmark image for application-observed overhead experiment
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GEN_DURATION_SEC
+              value: '30'
+            - name: GEN_RATE_LIMIT
+              value: '0'
+            - name: GEN_LABEL
+              value: 'scale'
+          resources:
+            limits:
+              cpu: '30m'
+        - name: proxy
+          image: # SCALE proxy image for application-observed overhead experiment
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: RINGBUF_POW2
+              value: '20'
+          volumeMounts:
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+          resources:
+            requests:
+              cpu: '30m'
+            limits:
+              cpu: '30m'
+      volumes:
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+      nodeSelector:
+        kubernetes.io/hostname: w-1

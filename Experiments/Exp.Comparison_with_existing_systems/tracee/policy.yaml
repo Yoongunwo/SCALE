@@ -1,0 +1,17 @@
+apiVersion: tracee.aquasec.com/v1beta1
+kind: Policy
+metadata:
+  name: sysgen-sysenter
+spec:
+  # scope 는 "어떤 대상을 볼 것인가", rules[].filters 는 "이벤트 데이터 조건"이다.
+  # 대상 한정자를 rules[].filters 에 두면 무시되고 global 로 동작한다.
+  #
+  # podName= 은 이 버전의 scope 옵션이 아니다 (invalid scope option).
+  # 대신 comm=postmark 로 워크로드 프로세스를 직접 지정한다. 이렇게 하면
+  # 분모를 만드는 main_controller 의 eBPF 카운터(/proc/PID/comm == "postmark")와
+  # 정확히 같은 프로세스 집합을 보게 되어 드롭률의 분자/분모가 일치한다.
+  scope:
+    - container
+    - comm=postmark
+  rules:
+    - event: sys_enter

@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: central-auditd
+  labels:
+    app: central-auditd
+spec:
+  hostPID: true
+  nodeSelector:
+    kubernetes.io/hostname: w-1
+  containers:
+    - name: proxy
+      image: # Centralized auditd image for drop experiment
+      imagePullPolicy: Always
+      securityContext:
+        privileged: true
+        capabilities:
+          add: ['ALL']
+        seccompProfile:
+          type: Unconfined
+
+      volumeMounts:
+        - name: sys
+          mountPath: /sys
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        - name: modules
+          mountPath: /lib/modules
+        - name: audit-logs
+          mountPath: /var/log/audit
+
+      resources:
+        requests:
+          cpu: '900m'
+        limits:
+          cpu: '900m'
+
+  volumes:
+    - name: sys
+      hostPath:
+        path: /sys
+    - name: debugfs
+      hostPath:
+        path: /sys/kernel/debug
+    - name: modules
+      hostPath:
+        path: /lib/modules
+    - name: audit-logs
+      hostPath:
+        path: /var/log/audit

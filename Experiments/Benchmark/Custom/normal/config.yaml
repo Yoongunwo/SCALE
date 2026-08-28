@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sys-gen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sys-gen
+  template:
+    metadata:
+      labels:
+        app: sys-gen
+    spec:
+      containers:
+        - name: sys-gen
+          image: # Custom Benchmark image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GEN_DURATION_SEC
+              value: '60'
+            - name: GEN_RATE_LIMIT
+              value: '1000000'
+      nodeSelector:
+        kubernetes.io/hostname: w-1

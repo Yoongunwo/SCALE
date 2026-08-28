@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sys-gen
+spec:
+  replicas: 30
+  selector:
+    matchLabels:
+      app: sys-gen
+  template:
+    metadata:
+      labels:
+        app: sys-gen
+    spec:
+      containers:
+        - name: sys-gen
+          image: # Image
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: '30m'
+          env:
+            - name: PM_MODE
+              value: 'gate'
+            - name: PM_GATE_LOOP
+              value: '1'
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+      nodeSelector:
+        kubernetes.io/hostname: # Node

@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exp2
+  template:
+    metadata:
+      labels:
+        app: exp2
+    spec:
+      hostPID: true
+      containers:
+        - name: proxy
+          image: # Distributed fentry/fexit sidecar image
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - ALL
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: RINGBUF_POW2
+              value: '20'
+          volumeMounts:
+            - name: sys
+              mountPath: /sys
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+            - name: modules
+              mountPath: /lib/modules
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+          resources:
+            requests:
+              cpu: '100m'
+            limits:
+              cpu: '100m'
+      volumes:
+        - name: syscallname
+          hostPath:
+            path: /usr/include/x86_64-linux-gnu/asm
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+        - name: modules
+          hostPath:
+            path: /lib/modules
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: host-proc
+          hostPath:
+            path: /proc
+      nodeSelector:
+        kubernetes.io/hostname: w-1

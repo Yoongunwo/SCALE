@@ -1,0 +1,2 @@
+sysdig -t r 'evt.dir=< and proc.name=sys_generator' \
+  -p '%evt.reltime %proc.pid %evt.type' > pod.log

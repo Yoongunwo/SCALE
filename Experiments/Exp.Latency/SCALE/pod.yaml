@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exp2
+  template:
+    metadata:
+      labels:
+        app: exp2
+    spec:
+      containers:
+        - name: sys-gen
+          image: # Custom Benchmark Image
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: '170m'
+            limits:
+              cpu: '170m'
+        - name: proxy
+          image: # SCALE Image
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - CAP_BPF
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: RINGBUF_POW2
+              value: '20'
+          volumeMounts:
+            - name: syscallname
+              mountPath: /usr/include/x86_64-linux-gnu/asm
+            - name: sys
+              mountPath: /sys
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+            - name: modules
+              mountPath: /lib/modules
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+          resources:
+            requests:
+              cpu: '60m'
+            limits:
+              cpu: '60m'
+      volumes:
+        - name: syscallname
+          hostPath:
+            path: /usr/include/x86_64-linux-gnu/asm
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+        - name: modules
+          hostPath:
+            path: /lib/modules
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+      nodeSelector:
+        kubernetes.io/hostname: w-1

@@ -32,7 +32,7 @@ metadata:
 spec:
   containers:
   - name: malicious
-    image: yoongunwo/malicious:1.2
+    image: # malicious image with ssh server, 
     imagePullPolicy: Always
     ports:
     - containerPort: 80

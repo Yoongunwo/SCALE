@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exp3
+spec:
+  replicas: 30
+  selector:
+    matchLabels:
+      app: exp3
+  template:
+    metadata:
+      labels:
+        app: exp3
+    spec:
+      shareProcessNamespace: true
+      containers:
+        - name: sys-gen
+          image: # Postmark Benchmark image
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests: { cpu: '170m' }
+            limits: { cpu: '170m' }
+          env:
+            - name: PM_MODE
+              value: 'gate'
+            - name: PM_GATE_LOOP
+              value: '1'
+        - name: proxy
+          image: # Distributed ftrace image for drop experiment
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - ALL
+            seccompProfile:
+              type: Unconfined
+          volumeMounts:
+            - name: sys
+              mountPath: /sys
+            - name: host-proc
+              mountPath: /host/proc
+          resources:
+            requests:
+              cpu: '30m'
+            limits:
+              cpu: '30m'
+      volumes:
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: host-proc
+          hostPath:
+            path: /proc
+      nodeSelector:
+        kubernetes.io/hostname: w-3

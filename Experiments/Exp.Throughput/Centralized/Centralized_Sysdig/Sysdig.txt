@@ -1,0 +1,10 @@
+apt update
+apt install sysdig
+
+# logging
+sysdig proc.name=sys_generator -w syscall_log.txt
+## only enter
+sysdig evt.dir="<" and proc.name=sys_generator -w syscall_log.txt
+
+sysdig -r syscall_log.txt 
+sysdig -r syscall_log.txt -p "%evt.time" | awk 'NR==1 {first=$0} {last=$0} END {print "LINES:", NR; print "HEAD:", first; print "TAIL:", last}'

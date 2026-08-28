@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: sys-gen
-          image: yoongunwo/sys_gen:1.0-auto
+          image: # Application Container Image
           imagePullPolicy: IfNotPresent
           resources:
             requests:
@@ -22,7 +22,7 @@ spec:
             limits:
               cpu: '200m'
         - name: proxy
-          image: { collector container image name }
+          image: # SCALE Proxy Image
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true

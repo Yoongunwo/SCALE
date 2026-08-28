@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: exp2
+  labels:
+    app: exp2
+spec:
+  hostPID: true
+  nodeSelector:
+    kubernetes.io/hostname: w-1
+
+  containers:
+    - name: proxy
+      image: # Centralized eBPF image for application-observed overhead experiment
+      imagePullPolicy: Always
+      securityContext:
+        privileged: true
+        capabilities:
+          add: ['ALL']
+        seccompProfile:
+          type: Unconfined
+
+      volumeMounts:
+        - name: syscallname
+          mountPath: /usr/include/x86_64-linux-gnu/asm
+        - name: sys
+          mountPath: /sys
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        - name: modules
+          mountPath: /lib/modules
+        - name: bpf
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+
+      resources:
+        requests:
+          cpu: '150m'
+        limits:
+          cpu: '150m'
+
+  volumes:
+    - name: syscallname
+      hostPath:
+        path: /usr/include/x86_64-linux-gnu/asm
+    - name: sys
+      hostPath:
+        path: /sys
+    - name: debugfs
+      hostPath:
+        path: /sys/kernel/debug
+    - name: modules
+      hostPath:
+        path: /lib/modules
+    - name: bpf
+      hostPath:
+        path: /sys/fs/bpf
+        type: DirectoryOrCreate
