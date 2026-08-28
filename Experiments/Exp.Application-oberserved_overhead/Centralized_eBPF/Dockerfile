@@ -1,4 +1,4 @@
-# From libbpf image
+# FROM libbpf image
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     iproute2 \
     pkg-config \
     libjansson-dev \
-    linux-headers-5.15.0-141-generic
+    linux-headers-{Kernel Version}
 
 COPY . .
 

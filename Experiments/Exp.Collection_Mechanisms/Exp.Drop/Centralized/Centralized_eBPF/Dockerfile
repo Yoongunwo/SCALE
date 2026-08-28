@@ -17,9 +17,4 @@ RUN apt-get update && apt-get install -y \
 
 COPY . .
 
-# mkdir ./log
-RUN mkdir -p ./log
-
-# ENTRYPOINT ["sh", "-c", "make RINGBUF_POW2=$RINGBUF_POW2 && ./build/syscall_collector 1"]
-ENTRYPOINT sh -c 'echo RINGBUF_POW2=$RINGBUF_POW2 && make RINGBUF_POW2=$RINGBUF_POW2 && ./build/syscall_collector 1'
-
+CMD ["sleep", "infinity"]

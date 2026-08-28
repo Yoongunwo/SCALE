@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
     iproute2 \
     pkg-config \
     libjansson-dev \
-    linux-headers-{Kernel Version}
+    linux-headers-{Kernel Version} \
+    bc
 
 COPY . .
 
@@ -21,5 +22,5 @@ COPY . .
 RUN mkdir -p ./log
 
 # ENTRYPOINT ["sh", "-c", "make RINGBUF_POW2=$RINGBUF_POW2 && ./build/syscall_collector 1"]
-ENTRYPOINT sh -c 'echo RINGBUF_POW2=$RINGBUF_POW2 && make RINGBUF_POW2=$RINGBUF_POW2 && ./build/syscall_collector 1'
+ENTRYPOINT sh -c 'echo RINGBUF_POW2=$RINGBUF_POW2 && make RINGBUF_POW2=$RINGBUF_POW2 && sleep infinity'
 
